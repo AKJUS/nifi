@@ -37,6 +37,11 @@
         text-underline-offset: 3px;
     }
 
+    .mat-mdc-form-field-infix {
+        min-width: 180px !important;
+        width: 180px !important;
+    }
+
     .tooltip {
         max-height: 70vh;
         max-width: 500px;
@@ -284,6 +289,10 @@
         }
     }
 
+    mat-datepicker-toggle .mat-mdc-icon-button.mat-mdc-button-base.mdc-icon-button {
+        padding: 11px; //center the mat-icon-button inside the date picker form field
+    }
+
     .mat-mdc-paginator {
         background-color: unset !important;
     }
@@ -453,6 +462,7 @@
     $secondary-contrast: map.get(map.get($config, secondary), contrast);
     $secondary-opacity: map.get(map.get($config, secondary), opacity);
     $neutral-contrast: map.get(map.get($config, neutral), contrast);
+    $disabled: mat.get-theme-color($material-theme, neutral, map.get(map.get($config, neutral), disabled));
     $border-color: mat.get-theme-color($material-theme, neutral-variant, map.get($config, neutral-variant));
     $success-default: map.get(map.get($config, success), default);
     $success-variant: map.get(map.get($config, success), variant);
@@ -528,6 +538,11 @@
     .neutral-contrast {
         color: $neutral-contrast;
         fill: $neutral-contrast;
+    }
+
+    .disabled {
+        color: $disabled;
+        fill: $disabled;
     }
 
     .border-color {
