@@ -23,7 +23,7 @@
     "jquery": "3.6.4",
     "jquery-ui-dist": "1.13.2",
     "reset.css": "2.0.2",
-    "slickgrid": "2.4.45",
+    "slickgrid": "3.0.0",
     "qtip2": "3.0.3",
     "JSON2": "0.1.0"
   },
