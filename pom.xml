@@ -15,7 +15,7 @@
         <groupId>org.apache</groupId>
         <artifactId>apache</artifactId>
         <version>33</version>
-        <relativePath />
+        <relativePath/>
     </parent>
     <groupId>org.apache.nifi</groupId>
     <artifactId>nifi</artifactId>
@@ -95,7 +95,7 @@
         <maven.compiler.showDeprecation>true</maven.compiler.showDeprecation>
         <!-- Set minimum Java version for maven-enforcer-plugin from parent POM -->
         <minimalJavaBuildVersion>21</minimalJavaBuildVersion>
-        <maven.surefire.arguments />
+        <maven.surefire.arguments/>
         <!-- Disable maven-site-plugin from parent POM -->
         <maven.site.skip>true</maven.site.skip>
         <docker.jdk.image.name>bellsoft/liberica-openjdk-debian</docker.jdk.image.name>
@@ -848,7 +848,7 @@
                         </goals>
                         <configuration>
                             <rules>
-                                <banDuplicatePomDependencyVersions />
+                                <banDuplicatePomDependencyVersions/>
                                 <requireSameVersions>
                                     <plugins>
                                         <plugin>org.apache.maven.plugins:maven-surefire-plugin</plugin>
