@@ -132,7 +132,7 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
             .description("All FlowFiles that cannot be routed to the AMQP destination are routed to this relationship")
             .build();
 
-    private final static List<PropertyDescriptor> PROPERTIES = Stream.concat(
+    private final static List<PropertyDescriptor> PROPERTY_DESCRIPTORS = Stream.concat(
             Stream.of(
                     EXCHANGE,
                     ROUTING_KEY,
@@ -171,15 +171,10 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
             throw new IllegalArgumentException("Failed to determine 'routing key' with provided value '"
                 + context.getProperty(ROUTING_KEY) + "' after evaluating it as expression against incoming FlowFile.");
         }
+
         InputHeaderSource selectedHeaderSource = context.getProperty(HEADERS_SOURCE).asAllowableValue(InputHeaderSource.class);
-        Character headerSeparator = null;
-        Pattern pattern = null;
-        if (context.getProperty(HEADERS_PATTERN).isSet()) {
-            pattern = Pattern.compile(context.getProperty(HEADERS_PATTERN).evaluateAttributeExpressions().getValue());
-        }
-        if (context.getProperty(HEADER_SEPARATOR).isSet()) {
-            headerSeparator = context.getProperty(HEADER_SEPARATOR).getValue().charAt(0);
-        }
+        final Pattern pattern = getPattern(context, selectedHeaderSource);
+        final Character headerSeparator = getHeaderSeparator(context, selectedHeaderSource);
 
         final BasicProperties amqpProperties = extractAmqpPropertiesFromFlowFile(flowFile, selectedHeaderSource, headerSeparator, pattern);
 
@@ -200,10 +195,9 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
         session.getProvenanceReporter().send(flowFile, connection.toString() + "/E:" + exchange + "/RK:" + routingKey);
     }
 
-
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return PROPERTIES;
+        return PROPERTY_DESCRIPTORS;
     }
 
     @Override
@@ -327,6 +321,26 @@ public class PublishAMQP extends AbstractAMQPProcessor<AMQPPublisher> {
         }
         return headers;
     }
+
+    protected Pattern getPattern(ProcessContext context, InputHeaderSource selectedHeaderSource) {
+        return switch (selectedHeaderSource) {
+            case FLOWFILE_ATTRIBUTES -> Pattern.compile(context.getProperty(HEADERS_PATTERN).evaluateAttributeExpressions().getValue());
+            case AMQP_HEADERS_ATTRIBUTE -> null;
+        };
+    }
+
+    protected Character getHeaderSeparator(ProcessContext context, InputHeaderSource selectedHeaderSource) {
+        return switch (selectedHeaderSource) {
+            case FLOWFILE_ATTRIBUTES -> null;
+            case AMQP_HEADERS_ATTRIBUTE -> {
+                if (context.getProperty(HEADER_SEPARATOR).isSet()) {
+                    yield context.getProperty(HEADER_SEPARATOR).getValue().charAt(0);
+                }
+                yield null;
+            }
+        };
+    }
+
     public enum InputHeaderSource implements DescribedValue {
 
         FLOWFILE_ATTRIBUTES("FlowFile Attributes", "Select FlowFile Attributes based on regular expression pattern for event headers. Key of the matching attribute will be used as header key"),

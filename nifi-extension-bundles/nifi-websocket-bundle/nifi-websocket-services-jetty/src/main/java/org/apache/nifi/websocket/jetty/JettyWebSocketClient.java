@@ -27,6 +27,7 @@ import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
@@ -48,6 +49,7 @@ import org.eclipse.jetty.websocket.client.ClientUpgradeRequest;
 import org.eclipse.jetty.websocket.client.WebSocketClient;
 
 import javax.net.ssl.SSLContext;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -66,6 +68,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Stream;
 
 @Tags({"WebSocket", "Jetty", "client"})
 @CapabilityDescription("Implementation of WebSocketClientService." +
@@ -74,8 +77,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class JettyWebSocketClient extends AbstractJettyWebSocketService implements WebSocketClientService {
 
     public static final PropertyDescriptor WS_URI = new PropertyDescriptor.Builder()
-            .name("websocket-uri")
-            .displayName("WebSocket URI")
+            .name("WebSocket URI")
             .description("The WebSocket URI this client connects to.")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -97,8 +99,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
             .build();
 
     public static final PropertyDescriptor CONNECTION_TIMEOUT = new PropertyDescriptor.Builder()
-            .name("connection-timeout")
-            .displayName("Connection Timeout")
+            .name("Connection Timeout")
             .description("The timeout to connect the WebSocket URI.")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -107,8 +108,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
             .build();
 
     public static final PropertyDescriptor CONNECTION_ATTEMPT_COUNT = new PropertyDescriptor.Builder()
-            .name("connection-attempt-timeout")
-            .displayName("Connection Attempt Count")
+            .name("Connection Attempt Count")
             .description("The number of times to try and establish a connection.")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -117,8 +117,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
             .build();
 
     public static final PropertyDescriptor SESSION_MAINTENANCE_INTERVAL = new PropertyDescriptor.Builder()
-            .name("session-maintenance-interval")
-            .displayName("Session Maintenance Interval")
+            .name("Session Maintenance Interval")
             .description("The interval between session maintenance activities." +
                     " A WebSocket session established with a WebSocket server can be terminated due to different reasons" +
                     " including restarting the WebSocket server or timing out inactive sessions." +
@@ -132,8 +131,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
             .build();
 
     public static final PropertyDescriptor USER_NAME = new PropertyDescriptor.Builder()
-            .name("user-name")
-            .displayName("User Name")
+            .name("Username")
             .description("The user name for Basic Authentication.")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -141,8 +139,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
             .build();
 
     public static final PropertyDescriptor USER_PASSWORD = new PropertyDescriptor.Builder()
-            .name("user-password")
-            .displayName("User Password")
+            .name("Password")
             .description("The user password for Basic Authentication.")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -151,8 +148,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
             .build();
 
     public static final PropertyDescriptor AUTH_CHARSET = new PropertyDescriptor.Builder()
-            .name("authentication-charset")
-            .displayName("Authentication Header Charset")
+            .name("Authentication Header Charset")
             .description("The charset for Basic Authentication header base64 string.")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -161,8 +157,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
             .build();
 
     public static final PropertyDescriptor CUSTOM_AUTH = new PropertyDescriptor.Builder()
-            .name("custom-authorization")
-            .displayName("Custom Authorization")
+            .name("Custom Authorization")
             .description(
                     "Configures a custom HTTP Authorization Header as described in RFC 7235 Section 4.2." +
                             " Setting a custom Authorization Header excludes configuring the User Name and User Password properties for Basic Authentication.")
@@ -174,8 +169,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
 
 
     public static final PropertyDescriptor PROXY_HOST = new PropertyDescriptor.Builder()
-            .name("proxy-host")
-            .displayName("HTTP Proxy Host")
+            .name("HTTP Proxy Host")
             .description("The host name of the HTTP Proxy.")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -183,8 +177,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
             .build();
 
     public static final PropertyDescriptor PROXY_PORT = new PropertyDescriptor.Builder()
-            .name("proxy-port")
-            .displayName("HTTP Proxy Port")
+            .name("HTTP Proxy Port")
             .description("The port number of the HTTP Proxy.")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -193,24 +186,23 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
 
     private static final int INITIAL_BACKOFF_MILLIS = 100;
     private static final int MAXIMUM_BACKOFF_MILLIS = 3200;
-    private static final List<PropertyDescriptor> properties;
 
-    static {
-        final List<PropertyDescriptor> props = new ArrayList<>(getAbstractPropertyDescriptors());
-        props.add(WS_URI);
-        props.add(SSL_CONTEXT);
-        props.add(CONNECTION_TIMEOUT);
-        props.add(CONNECTION_ATTEMPT_COUNT);
-        props.add(SESSION_MAINTENANCE_INTERVAL);
-        props.add(USER_NAME);
-        props.add(USER_PASSWORD);
-        props.add(AUTH_CHARSET);
-        props.add(CUSTOM_AUTH);
-        props.add(PROXY_HOST);
-        props.add(PROXY_PORT);
-
-        properties = Collections.unmodifiableList(props);
-    }
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = Stream.concat(
+            getAbstractPropertyDescriptors().stream(),
+            Stream.of(
+                    WS_URI,
+                    SSL_CONTEXT_SERVICE,
+                    CONNECTION_TIMEOUT,
+                    CONNECTION_ATTEMPT_COUNT,
+                    SESSION_MAINTENANCE_INTERVAL,
+                    USER_NAME,
+                    USER_PASSWORD,
+                    AUTH_CHARSET,
+                    CUSTOM_AUTH,
+                    PROXY_HOST,
+                    PROXY_PORT
+            )
+    ).toList();
 
     private final Map<String, SessionInfo> activeSessions = new ConcurrentHashMap<>();
     private final ReentrantLock connectionLock = new ReentrantLock();
@@ -222,9 +214,26 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
     private ConfigurationContext configurationContext;
     protected String authorizationHeader;
 
+
+    @Override
+    public void migrateProperties(final PropertyConfiguration propertyConfiguration) {
+        super.migrateProperties(propertyConfiguration);
+        propertyConfiguration.renameProperty("websocket-uri", WS_URI.getName());
+        propertyConfiguration.renameProperty("ssl-context-service", SSL_CONTEXT_SERVICE.getName());
+        propertyConfiguration.renameProperty("connection-timeout", CONNECTION_TIMEOUT.getName());
+        propertyConfiguration.renameProperty("connection-attempt-timeout", CONNECTION_ATTEMPT_COUNT.getName());
+        propertyConfiguration.renameProperty("session-maintenance-interval", SESSION_MAINTENANCE_INTERVAL.getName());
+        propertyConfiguration.renameProperty("user-name", USER_NAME.getName());
+        propertyConfiguration.renameProperty("user-password", USER_PASSWORD.getName());
+        propertyConfiguration.renameProperty("authentication-charset", AUTH_CHARSET.getName());
+        propertyConfiguration.renameProperty("custom-authorization", CUSTOM_AUTH.getName());
+        propertyConfiguration.renameProperty("proxy-host", PROXY_HOST.getName());
+        propertyConfiguration.renameProperty("proxy-port", PROXY_PORT.getName());
+    }
+
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return properties;
+        return PROPERTY_DESCRIPTORS;
     }
 
     @OnEnabled
@@ -235,7 +244,7 @@ public class JettyWebSocketClient extends AbstractJettyWebSocketService implemen
         connectCount = configurationContext.getProperty(CONNECTION_ATTEMPT_COUNT).evaluateAttributeExpressions().asInteger();
 
         final HttpClient httpClient;
-        final SSLContextProvider sslContextProvider = context.getProperty(SSL_CONTEXT).asControllerService(SSLContextProvider.class);
+        final SSLContextProvider sslContextProvider = context.getProperty(SSL_CONTEXT_SERVICE).asControllerService(SSLContextProvider.class);
         if (sslContextProvider == null) {
             httpClient = new HttpClient();
         } else {

@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.util;
 
+import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.DescribedValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationResult;
@@ -38,6 +39,7 @@ import org.apache.nifi.state.MockStateManager;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -396,6 +398,19 @@ public interface TestRunner {
      */
     void assertValid();
 
+    /**
+     * Validates the currently configured set of properties/annotation data
+     * @return a Collection of ValidationResult
+     */
+    Collection<ValidationResult> validate();
+
+    /**
+     * Verifies the currently configured set of properties/annotation data
+     * @param variables the variables to use for verification
+     * @return a Collection of ConfigVerificationResult
+     */
+    List<ConfigVerificationResult> verify(Map<String, String> variables);
+
     boolean isValid();
 
     /**
@@ -534,6 +549,11 @@ public interface TestRunner {
      * @return the current size of the Processor's Input Queue
      */
     QueueSize getQueueSize();
+
+    /**
+     * Allow for clearing the queue from all remaining flow files.
+     */
+    void clearQueue();
 
     /**
      * @param name of counter
@@ -842,6 +862,22 @@ public interface TestRunner {
     void assertValid(ControllerService service);
 
     /**
+     * Validates the currently configured set of properties/annotation data for
+     * the given Controller Service.
+     * @param service the service to validate
+     * @return a Collection of ValidationResult
+     */
+    Collection<ValidationResult> validate(ControllerService service);
+
+    /**
+     * Verifies the currently configured set of properties/annotation data for
+     * the given Controller Service.
+     * @param variables the variables to use for verification
+     * @return a Collection of ConfigVerificationResult
+     */
+    List<ConfigVerificationResult> verify(ControllerService service, Map<String, String> variables);
+
+    /**
      * Assert that the currently configured set of properties/annotation data
      * are NOT valid for the given Controller Service.
      *
@@ -891,12 +927,20 @@ public interface TestRunner {
     void setValidateExpressionUsage(boolean validate);
 
     /**
-     * Specifies whether or not the TestRunner will allow ProcessSession.commit() to be called.
+     * Specifies whether the TestRunner will allow ProcessSession.commit() to be called.
      * By default, the value is <code>false</code>, meaning that any call to ProcessSession.commit() will throw
      * an Exception. See JavaDocs for {@link ProcessSession#commit()} for more information
-     * @param allow whethr or not to allow asynchronous session commits (i.e., calls to ProcessSession.commit())
+     * @param allow whether to allow asynchronous session commits (i.e., calls to ProcessSession.commit())
      */
     void setAllowSynchronousSessionCommits(boolean allow);
+
+    /**
+     * Specifies whether the TestRunner will allow ProcessSession.read() multiple times for the same FlowFile while an InputStream is already open.
+     * By default, the value is <code>false</code>, meaning that any call to ProcessSession.read() for a FlowFile already being read will throw
+     * an Exception. See JavaDocs for {@link ProcessSession#read(FlowFile)} for more information
+     * @param allow whether to allow recursive reads of a FlowFile (i.e., calls to ProcessSession.read())
+     */
+    void setAllowRecursiveReads(boolean allow);
 
     /**
      * Removes the {@link PropertyDescriptor} from the {@link ProcessContext},

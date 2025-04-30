@@ -16,12 +16,13 @@
  */
 package org.apache.nifi.parquet;
 
+import static org.apache.nifi.parquet.utils.ParquetUtils.AVRO_ADD_LIST_ELEMENT_RECORDS;
+import static org.apache.nifi.parquet.utils.ParquetUtils.AVRO_READ_COMPATIBILITY;
 import static org.apache.nifi.parquet.utils.ParquetUtils.applyCommonConfig;
 import static org.apache.nifi.parquet.utils.ParquetUtils.createParquetConfig;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.apache.hadoop.conf.Configuration;
@@ -32,7 +33,6 @@ import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.parquet.record.ParquetRecordReader;
 import org.apache.nifi.parquet.utils.ParquetConfig;
-import org.apache.nifi.parquet.utils.ParquetUtils;
 import org.apache.nifi.serialization.RecordReader;
 import org.apache.nifi.serialization.RecordReaderFactory;
 
@@ -40,6 +40,11 @@ import org.apache.nifi.serialization.RecordReaderFactory;
 @CapabilityDescription("Parses Parquet data and returns each Parquet record as a separate Record object. " +
         "The schema will come from the Parquet data itself.")
 public class ParquetReader extends AbstractControllerService implements RecordReaderFactory {
+
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
+            AVRO_READ_COMPATIBILITY,
+            AVRO_ADD_LIST_ELEMENT_RECORDS
+    );
 
     @Override
     public RecordReader createRecordReader(final Map<String, String> variables, final InputStream in, final long inputLength, final ComponentLog logger) throws IOException {
@@ -51,8 +56,6 @@ public class ParquetReader extends AbstractControllerService implements RecordRe
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties = new ArrayList<>();
-        properties.add(ParquetUtils.AVRO_READ_COMPATIBILITY);
-        return properties;
+        return PROPERTY_DESCRIPTORS;
     }
 }

@@ -21,7 +21,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import org.apache.commons.io.IOUtils;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHost;
@@ -45,6 +44,7 @@ import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.oauth2.OAuth2AccessTokenProvider;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.proxy.ProxyConfiguration;
@@ -56,6 +56,7 @@ import org.apache.nifi.util.StringUtils;
 import org.elasticsearch.client.Node;
 import org.elasticsearch.client.NodeSelector;
 import org.elasticsearch.client.Request;
+import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.ResponseException;
 import org.elasticsearch.client.RestClient;
@@ -102,10 +103,35 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
 
     private ObjectMapper mapper;
 
-    private static final List<PropertyDescriptor> properties = List.of(HTTP_HOSTS, PATH_PREFIX, AUTHORIZATION_SCHEME, USERNAME, PASSWORD, API_KEY_ID, API_KEY,
-            PROP_SSL_CONTEXT_SERVICE, PROXY_CONFIGURATION_SERVICE, CONNECT_TIMEOUT, SOCKET_TIMEOUT, CHARSET,
-            SUPPRESS_NULLS, COMPRESSION, SEND_META_HEADER, STRICT_DEPRECATION, NODE_SELECTOR, SNIFF_CLUSTER_NODES,
-            SNIFFER_INTERVAL, SNIFFER_REQUEST_TIMEOUT, SNIFF_ON_FAILURE, SNIFFER_FAILURE_DELAY);
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
+            HTTP_HOSTS,
+            PATH_PREFIX,
+            AUTHORIZATION_SCHEME,
+            USERNAME,
+            PASSWORD,
+            API_KEY_ID,
+            API_KEY,
+            JWT_SHARED_SECRET,
+            OAUTH2_ACCESS_TOKEN_PROVIDER,
+            RUN_AS_USER,
+            PROP_SSL_CONTEXT_SERVICE,
+            PROXY_CONFIGURATION_SERVICE,
+            CONNECT_TIMEOUT,
+            SOCKET_TIMEOUT,
+            CHARSET,
+            SUPPRESS_NULLS,
+            COMPRESSION,
+            SEND_META_HEADER,
+            STRICT_DEPRECATION,
+            NODE_SELECTOR,
+            SNIFF_CLUSTER_NODES,
+            SNIFFER_INTERVAL,
+            SNIFFER_REQUEST_TIMEOUT,
+            SNIFF_ON_FAILURE,
+            SNIFFER_FAILURE_DELAY
+    );
+
+    private OAuth2AccessTokenProvider oAuth2AccessTokenProvider;
 
     private RestClient client;
 
@@ -117,7 +143,7 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return properties;
+        return PROPERTY_DESCRIPTORS;
     }
 
     @Override
@@ -137,12 +163,6 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
 
         final AuthorizationScheme authorizationScheme = validationContext.getProperty(AUTHORIZATION_SCHEME).asAllowableValue(AuthorizationScheme.class);
 
-        final boolean usernameSet = validationContext.getProperty(USERNAME).isSet();
-        final boolean passwordSet = validationContext.getProperty(PASSWORD).isSet();
-
-        final boolean apiKeyIdSet = validationContext.getProperty(API_KEY_ID).isSet();
-        final boolean apiKeySet = validationContext.getProperty(API_KEY).isSet();
-
         final SSLContextProvider sslContextProvider = validationContext.getProperty(PROP_SSL_CONTEXT_SERVICE).asControllerService(SSLContextProvider.class);
 
         if (authorizationScheme == AuthorizationScheme.PKI && (sslContextProvider == null)) {
@@ -151,18 +171,6 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
                             AUTHORIZATION_SCHEME.getDisplayName(), authorizationScheme.getDisplayName(), PROP_SSL_CONTEXT_SERVICE.getDisplayName())
                     ).build()
             );
-        }
-
-        if (usernameSet && !passwordSet) {
-            addAuthorizationPropertiesValidationIssue(results, USERNAME, PASSWORD);
-        } else if (passwordSet && !usernameSet) {
-            addAuthorizationPropertiesValidationIssue(results, PASSWORD, USERNAME);
-        }
-
-        if (apiKeyIdSet && !apiKeySet) {
-            addAuthorizationPropertiesValidationIssue(results, API_KEY_ID, API_KEY);
-        } else if (apiKeySet && !apiKeyIdSet) {
-            addAuthorizationPropertiesValidationIssue(results, API_KEY, API_KEY_ID);
         }
 
         final boolean sniffClusterNodes = validationContext.getProperty(SNIFF_CLUSTER_NODES).asBoolean();
@@ -175,23 +183,16 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
         return results;
     }
 
-    private void addAuthorizationPropertiesValidationIssue(final List<ValidationResult> results, final PropertyDescriptor presentProperty, final PropertyDescriptor missingProperty) {
-        results.add(new ValidationResult.Builder().subject(missingProperty.getName()).valid(false)
-                .explanation(String.format("if '%s' is then '%s' must be set.", presentProperty.getDisplayName(), missingProperty.getDisplayName()))
-                .build()
-        );
-    }
-
     @OnEnabled
     public void onEnabled(final ConfigurationContext context) throws InitializationException {
         try {
             this.client = setupClient(context);
             this.sniffer = setupSniffer(context, this.client);
-            responseCharset = Charset.forName(context.getProperty(CHARSET).getValue());
+            this.responseCharset = Charset.forName(context.getProperty(CHARSET).getValue());
+            this.oAuth2AccessTokenProvider = context.getProperty(OAUTH2_ACCESS_TOKEN_PROVIDER).asControllerService(OAuth2AccessTokenProvider.class);
 
             // re-create the ObjectMapper in case the SUPPRESS_NULLS property has changed - the JsonInclude settings aren't dynamic
             createObjectMapper(context);
-
         } catch (final Exception ex) {
             getLogger().error("Could not initialize ElasticSearch client.", ex);
             throw new InitializationException(ex);
@@ -244,13 +245,18 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
             clientSetupResult.outcome(ConfigVerificationResult.Outcome.SUCCESSFUL);
 
             // try to fetch the Elasticsearch root endpoint (system summary)
-            verifyRootConnection(verifyClient, connectionResult, warningsResult);
+            final OAuth2AccessTokenProvider tokenProvider = context.getProperty(OAUTH2_ACCESS_TOKEN_PROVIDER).asControllerService(OAuth2AccessTokenProvider.class);
+            verifyRootConnection(verifyClient, tokenProvider, connectionResult, warningsResult);
 
             // try sniffing for cluster nodes
-            verifySniffer(context, verifyClient, snifferResult);
+            verifySniffer(context, verifyClient, tokenProvider, snifferResult);
         } catch (final MalformedURLException mue) {
             clientSetupResult.outcome(ConfigVerificationResult.Outcome.FAILED)
-                    .explanation("Incorrect/invalid " + ElasticSearchClientService.HTTP_HOSTS.getDisplayName());
+                    .explanation("""
+                            Incorrect/invalid %s.
+                            The HTTP Hosts should be valid URIs including protocol, domain and port for each entry.
+                            For example "https://elasticsearch1:9200, https://elasticsearch2:9200".
+                            """.formatted(ElasticSearchClientService.HTTP_HOSTS.getDisplayName()));
         } catch (final InitializationException ie) {
             clientSetupResult.outcome(ConfigVerificationResult.Outcome.FAILED)
                     .explanation("Incorrect/invalid " + ElasticSearchClientService.PROP_SSL_CONTEXT_SERVICE.getDisplayName());
@@ -283,7 +289,7 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
         return results;
     }
 
-    private void verifySniffer(final ConfigurationContext context, final RestClient verifyClient, final ConfigVerificationResult.Builder snifferResult) {
+    private void verifySniffer(final ConfigurationContext context, final RestClient verifyClient, final OAuth2AccessTokenProvider tokenProvider, final ConfigVerificationResult.Builder snifferResult) {
         try (final Sniffer verifySniffer = setupSniffer(context, verifyClient)) {
             if (verifySniffer != null) {
                 final List<Node> originalNodes = verifyClient.getNodes();
@@ -297,7 +303,7 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
                 nodes.forEach(n -> {
                     try {
                         verifyClient.setNodes(Collections.singletonList(n));
-                        final List<String> warnings = getElasticsearchRoot(verifyClient);
+                        final List<String> warnings = getElasticsearchRoot(verifyClient, tokenProvider);
                         successfulInstances.getAndIncrement();
                         if (!warnings.isEmpty()) {
                             warningInstances.getAndIncrement();
@@ -331,17 +337,24 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
         }
     }
 
-    private List<String> getElasticsearchRoot(final RestClient verifyClient) throws IOException {
-        final Response response = verifyClient.performRequest(new Request("GET", "/"));
+    private List<String> getElasticsearchRoot(final RestClient verifyClient, final OAuth2AccessTokenProvider tokenProvider) throws IOException {
+        final Request request = new Request("GET", "/");
+        final RequestOptions.Builder requestOptionsBuilder = request.getOptions().toBuilder();
+        addJWTAuthorizationHeader(requestOptionsBuilder, tokenProvider);
+        request.setOptions(requestOptionsBuilder.build());
+
+        final Response response = verifyClient.performRequest(request);
         final List<String> warnings = parseResponseWarningHeaders(response);
+        // ensure the response can be parsed without exception
         parseResponse(response);
 
         return warnings;
     }
 
-    private void verifyRootConnection(final RestClient verifyClient, final ConfigVerificationResult.Builder connectionResult, final ConfigVerificationResult.Builder warningsResult) {
+    private void verifyRootConnection(final RestClient verifyClient, final OAuth2AccessTokenProvider tokenProvider,
+                                      final ConfigVerificationResult.Builder connectionResult, final ConfigVerificationResult.Builder warningsResult) {
         try {
-            final List<String> warnings = getElasticsearchRoot(verifyClient);
+            final List<String> warnings = getElasticsearchRoot(verifyClient, tokenProvider);
 
             connectionResult.outcome(ConfigVerificationResult.Outcome.SUCCESSFUL);
             if (warnings.isEmpty()) {
@@ -419,8 +432,12 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
         final String username = context.getProperty(USERNAME).evaluateAttributeExpressions().getValue();
         final String password = context.getProperty(PASSWORD).evaluateAttributeExpressions().getValue();
 
+        final String runAsUser = context.getProperty(RUN_AS_USER).evaluateAttributeExpressions().getValue();
+
         final String apiKeyId = context.getProperty(API_KEY_ID).getValue();
         final String apiKey = context.getProperty(API_KEY).getValue();
+
+        final String jwtSharedSecret = context.getProperty(JWT_SHARED_SECRET).getValue();
 
         final SSLContext sslContext = getSSLContext(context);
         final ProxyConfigurationService proxyConfigurationService = context.getProperty(PROXY_CONFIGURATION_SERVICE).asControllerService(ProxyConfigurationService.class);
@@ -438,6 +455,12 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
             final List<Header> defaultHeaders = getDefaultHeadersFromDynamicProperties(context);
             if (AuthorizationScheme.API_KEY == authorizationScheme && apiKeyId != null && apiKey != null) {
                 defaultHeaders.add(createApiKeyAuthorizationHeader(apiKeyId, apiKey));
+            }
+            if (AuthorizationScheme.JWT == authorizationScheme && jwtSharedSecret != null) {
+                defaultHeaders.add(createSharedSecretHeader(jwtSharedSecret));
+            }
+            if (runAsUser != null) {
+                defaultHeaders.add(createRunAsUserHeader(runAsUser));
             }
             if (!defaultHeaders.isEmpty()) {
                 builder.setDefaultHeaders(defaultHeaders.toArray(new Header[0]));
@@ -504,6 +527,20 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
         return new BasicHeader("Authorization", "ApiKey " + apiKeyAuth);
     }
 
+    private BasicHeader createSharedSecretHeader(final String jwtSharedSecret) {
+        return new BasicHeader("ES-Client-Authentication", "sharedsecret " + jwtSharedSecret);
+    }
+
+    private BasicHeader createRunAsUserHeader(final String runAsUser) {
+        return new BasicHeader("es-security-runas-user", runAsUser);
+    }
+
+    private void addJWTAuthorizationHeader(final RequestOptions.Builder requestOptionsBuilder, final OAuth2AccessTokenProvider tokenProvider) {
+        if (tokenProvider != null) {
+            requestOptionsBuilder.addHeader("Authorization", "Bearer " + tokenProvider.getAccessDetails().getAccessToken());
+        }
+    }
+
     private Sniffer setupSniffer(final ConfigurationContext context, final RestClient restClient) {
         final boolean sniffClusterNodes = context.getProperty(SNIFF_CLUSTER_NODES).asBoolean();
         final int snifferIntervalMillis = context.getProperty(SNIFFER_INTERVAL).asTimePeriod(TimeUnit.MILLISECONDS).intValue();
@@ -537,7 +574,7 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
         }
     }
 
-    private Response runQuery(final String endpoint, final String query, final String index, final String type, final Map<String, String> requestParameters) {
+    private Response runQuery(final String endpoint, final String query, final String index, final String type, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         final StringBuilder sb = new StringBuilder();
         appendIndex(sb, index);
         if (StringUtils.isNotBlank(type)) {
@@ -547,7 +584,7 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
 
         try {
             final HttpEntity queryEntity = new NStringEntity(query, ContentType.APPLICATION_JSON);
-            return performRequest("POST", sb.toString(), requestParameters, queryEntity);
+            return performRequest("POST", sb.toString(), elasticsearchRequestOptions, queryEntity);
         } catch (final Exception e) {
             throw new ElasticsearchException(e);
         }
@@ -559,10 +596,8 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
 
         try {
             if (code >= 200 && code < 300) {
-                final InputStream inputStream = response.getEntity().getContent();
-                final byte[] result = IOUtils.toByteArray(inputStream);
-                inputStream.close();
-                return mapper.readValue(new String(result, responseCharset), Map.class);
+                final String body = this.readContentAsString(response.getEntity(), this.responseCharset);
+                return mapper.readValue(body, Map.class);
             } else {
                 final String errorMessage = String.format("ElasticSearch reported an error while trying to run the query: %s",
                         response.getStatusLine().getReasonPhrase());
@@ -585,8 +620,8 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public IndexOperationResponse add(final IndexOperationRequest operation, final Map<String, String> requestParameters) {
-        return bulk(Collections.singletonList(operation), requestParameters);
+    public IndexOperationResponse add(final IndexOperationRequest operation, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
+        return bulk(Collections.singletonList(operation), elasticsearchRequestOptions);
     }
 
     private String flatten(final String str) {
@@ -656,7 +691,7 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public IndexOperationResponse bulk(final List<IndexOperationRequest> operations, final Map<String, String> requestParameters) {
+    public IndexOperationResponse bulk(final List<IndexOperationRequest> operations, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         try {
             final StringBuilder payload = new StringBuilder();
             for (final IndexOperationRequest or : operations) {
@@ -669,10 +704,10 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
             final HttpEntity entity = new NStringEntity(payload.toString(), ContentType.APPLICATION_JSON);
             final StopWatch watch = new StopWatch();
             watch.start();
-            final Response response = performRequest("POST", "/_bulk", requestParameters, entity);
+            final Response response = performRequest("POST", "/_bulk", elasticsearchRequestOptions, entity);
             watch.stop();
 
-            final String rawResponse = IOUtils.toString(response.getEntity().getContent(), StandardCharsets.UTF_8);
+            final String rawResponse = this.readContentAsUtf8String(response.getEntity());
             parseResponseWarningHeaders(response);
 
             if (getLogger().isDebugEnabled()) {
@@ -686,20 +721,20 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public Long count(final String query, final String index, final String type, final Map<String, String> requestParameters) {
-        final Response response = runQuery("_count", query, index, type, requestParameters);
+    public Long count(final String query, final String index, final String type, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
+        final Response response = runQuery("_count", query, index, type, elasticsearchRequestOptions);
         final Map<String, Object> parsed = parseResponse(response);
 
         return ((Integer) parsed.get("count")).longValue();
     }
 
     @Override
-    public DeleteOperationResponse deleteById(final String index, final String type, final String id, final Map<String, String> requestParameters) {
-        return deleteById(index, type, Collections.singletonList(id), requestParameters);
+    public DeleteOperationResponse deleteById(final String index, final String type, final String id, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
+        return deleteById(index, type, Collections.singletonList(id), elasticsearchRequestOptions);
     }
 
     @Override
-    public DeleteOperationResponse deleteById(final String index, final String type, final List<String> ids, final Map<String, String> requestParameters) {
+    public DeleteOperationResponse deleteById(final String index, final String type, final List<String> ids, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         try {
             final StringBuilder sb = new StringBuilder();
             for (final String id : ids) {
@@ -709,11 +744,11 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
             final HttpEntity entity = new NStringEntity(sb.toString(), ContentType.APPLICATION_JSON);
             final StopWatch watch = new StopWatch();
             watch.start();
-            final Response response = performRequest("POST", "/_bulk", requestParameters, entity);
+            final Response response = performRequest("POST", "/_bulk", elasticsearchRequestOptions, entity);
             watch.stop();
 
             if (getLogger().isDebugEnabled()) {
-                getLogger().debug("Response for bulk delete: {}", IOUtils.toString(response.getEntity().getContent(), StandardCharsets.UTF_8));
+                getLogger().debug("Response for bulk delete: {}", this.readContentAsUtf8String(response.getEntity()));
             }
 
             parseResponseWarningHeaders(response);
@@ -724,10 +759,10 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public DeleteOperationResponse deleteByQuery(final String query, final String index, final String type, final Map<String, String> requestParameters) {
+    public DeleteOperationResponse deleteByQuery(final String query, final String index, final String type, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         final StopWatch watch = new StopWatch();
         watch.start();
-        final Response response = runQuery("_delete_by_query", query, index, type, requestParameters);
+        final Response response = runQuery("_delete_by_query", query, index, type, elasticsearchRequestOptions);
         watch.stop();
 
         // check for errors in response
@@ -738,9 +773,9 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public UpdateOperationResponse updateByQuery(final String query, final String index, final String type, final Map<String, String> requestParameters) {
+    public UpdateOperationResponse updateByQuery(final String query, final String index, final String type, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         final long start = System.currentTimeMillis();
-        final Response response = runQuery("_update_by_query", query, index, type, requestParameters);
+        final Response response = runQuery("_update_by_query", query, index, type, elasticsearchRequestOptions);
         final long end = System.currentTimeMillis();
 
         // check for errors in response
@@ -750,12 +785,12 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public void refresh(final String index, final Map<String, String> requestParameters) {
+    public void refresh(final String index, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         try {
             final StringBuilder endpoint = new StringBuilder();
             appendIndex(endpoint, index);
             endpoint.append("/_refresh");
-            final Response response = performRequest("POST", endpoint.toString(), requestParameters, null);
+            final Response response = performRequest("POST", endpoint.toString(), elasticsearchRequestOptions, null);
             parseResponseWarningHeaders(response);
         } catch (final Exception ex) {
             throw new ElasticsearchException(ex);
@@ -763,11 +798,11 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public boolean exists(final String index, final Map<String, String> requestParameters) {
+    public boolean exists(final String index, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         try {
             final StringBuilder endpoint = new StringBuilder();
             appendIndex(endpoint, index);
-            final Response response = performRequest("HEAD", endpoint.toString(), requestParameters, null);
+            final Response response = performRequest("HEAD", endpoint.toString(), elasticsearchRequestOptions, null);
             parseResponseWarningHeaders(response);
 
             if (response.getStatusLine().getStatusCode() == 200) {
@@ -785,12 +820,12 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public boolean documentExists(final String index, final String type, final String id, final Map<String, String> requestParameters) {
+    public boolean documentExists(final String index, final String type, final String id, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         boolean exists = true;
         try {
-            final Map<String, String> existsParameters = requestParameters != null ? new HashMap<>(requestParameters) : new HashMap<>();
+            final Map<String, String> existsParameters = elasticsearchRequestOptions == null ? new HashMap<>() : new HashMap<>(elasticsearchRequestOptions.getRequestParameters());
             existsParameters.putIfAbsent("_source", "false");
-            get(index, type, id, existsParameters);
+            get(index, type, id, new ElasticsearchRequestOptions(existsParameters, elasticsearchRequestOptions == null ? Collections.emptyMap() : elasticsearchRequestOptions.getRequestHeaders()));
         } catch (final ElasticsearchException ee) {
             if (ee.isNotFound()) {
                 exists = false;
@@ -803,7 +838,7 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
 
     @SuppressWarnings("unchecked")
     @Override
-    public Map<String, Object> get(final String index, final String type, final String id, final Map<String, String> requestParameters) {
+    public Map<String, Object> get(final String index, final String type, final String id, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         try {
             final StringBuilder endpoint = new StringBuilder();
             appendIndex(endpoint, index);
@@ -814,8 +849,8 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
             }
             endpoint.append("/").append(id);
 
-            final Response response = performRequest("GET", endpoint.toString(), requestParameters, null);
-            final String body = IOUtils.toString(response.getEntity().getContent(), StandardCharsets.UTF_8);
+            final Response response = performRequest("GET", endpoint.toString(), elasticsearchRequestOptions, null);
+            final String body = this.readContentAsUtf8String(response.getEntity());
             parseResponseWarningHeaders(response);
 
             return (Map<String, Object>) mapper.readValue(body, Map.class).getOrDefault("_source", Collections.emptyMap());
@@ -839,20 +874,24 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public SearchResponse search(final String query, final String index, final String type, final Map<String, String> requestParameters) {
+    public SearchResponse search(final String query, final String index, final String type, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         try {
-            final Response response = runQuery("_search", query, index, type, requestParameters);
+            final Response response = runQuery("_search", query, index, type, elasticsearchRequestOptions);
             return buildSearchResponse(response);
+        } catch (final ElasticsearchException ee) {
+            throw ee;
         } catch (final Exception ex) {
             throw new ElasticsearchException(ex);
         }
     }
 
     @Override
-    public SearchResponse scroll(final String scroll) {
+    public SearchResponse scroll(final String scroll, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         try {
             final HttpEntity scrollEntity = new NStringEntity(scroll, ContentType.APPLICATION_JSON);
-            final Response response = performRequest("POST", "/_search/scroll", Collections.emptyMap(), scrollEntity);
+            final Response response = performRequest("POST", "/_search/scroll",
+                    // ensure no request params, which would break the API call
+                    Collections.emptyMap(), elasticsearchRequestOptions == null ? Collections.emptyMap() : elasticsearchRequestOptions.getRequestHeaders(), scrollEntity);
             return buildSearchResponse(response);
         } catch (final Exception ex) {
             throw new ElasticsearchException(ex);
@@ -860,18 +899,21 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public String initialisePointInTime(final String index, final String keepAlive) {
+    public String initialisePointInTime(final String index, final String keepAlive, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         try {
-            final Map<String, String> params = new HashMap<>() {{
-                if (StringUtils.isNotBlank(keepAlive)) {
-                    put("keep_alive", keepAlive);
-                }
-            }};
+            final Map<String, String> params = new HashMap<>();
+            if (StringUtils.isNotBlank(keepAlive)) {
+                params.putIfAbsent("keep_alive", keepAlive);
+            }
+
             final StringBuilder endpoint = new StringBuilder();
             appendIndex(endpoint, index);
             endpoint.append("/_pit");
-            final Response response = performRequest("POST", endpoint.toString(), params, null);
-            final String body = IOUtils.toString(response.getEntity().getContent(), StandardCharsets.UTF_8);
+
+            final Response response = performRequest("POST", endpoint.toString(),
+                    // ensure only keep_alive param provided as required by the API
+                    params, elasticsearchRequestOptions == null ? Collections.emptyMap() : elasticsearchRequestOptions.getRequestHeaders(), null);
+            final String body = this.readContentAsUtf8String(response.getEntity());
             parseResponseWarningHeaders(response);
 
             if (getLogger().isDebugEnabled()) {
@@ -885,16 +927,18 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public DeleteOperationResponse deletePointInTime(final String pitId) {
+    public DeleteOperationResponse deletePointInTime(final String pitId, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         try {
             final HttpEntity pitEntity = new NStringEntity(String.format("{\"id\": \"%s\"}", pitId), ContentType.APPLICATION_JSON);
 
             final StopWatch watch = new StopWatch(true);
-            final Response response = performRequest("DELETE", "/_pit", Collections.emptyMap(), pitEntity);
+            final Response response = performRequest("DELETE", "/_pit",
+                    // ensure no request params, which would break the API call
+                    Collections.emptyMap(), elasticsearchRequestOptions == null ? Collections.emptyMap() : elasticsearchRequestOptions.getRequestHeaders(), pitEntity);
             watch.stop();
 
             if (getLogger().isDebugEnabled()) {
-                getLogger().debug("Response for deleting Point in Time: {}", IOUtils.toString(response.getEntity().getContent(), StandardCharsets.UTF_8));
+                getLogger().debug("Response for deleting Point in Time: {}", this.readContentAsUtf8String(response.getEntity()));
             }
 
             parseResponseWarningHeaders(response);
@@ -911,16 +955,18 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
     }
 
     @Override
-    public DeleteOperationResponse deleteScroll(final String scrollId) {
+    public DeleteOperationResponse deleteScroll(final String scrollId, final ElasticsearchRequestOptions elasticsearchRequestOptions) {
         try {
             final HttpEntity scrollBody = new NStringEntity(String.format("{\"scroll_id\": \"%s\"}", scrollId), ContentType.APPLICATION_JSON);
 
             final StopWatch watch = new StopWatch(true);
-            final Response response = performRequest("DELETE", "/_search/scroll", Collections.emptyMap(), scrollBody);
+            final Response response = performRequest("DELETE", "/_search/scroll",
+                    // ensure no request params, which would break the API call
+                    Collections.emptyMap(), elasticsearchRequestOptions == null ? Collections.emptyMap() : elasticsearchRequestOptions.getRequestHeaders(), scrollBody);
             watch.stop();
 
             if (getLogger().isDebugEnabled()) {
-                getLogger().debug("Response for deleting Scroll: {}", IOUtils.toString(response.getEntity().getContent(), StandardCharsets.UTF_8));
+                getLogger().debug("Response for deleting Scroll: {}", this.readContentAsUtf8String(response.getEntity()));
             }
 
             parseResponseWarningHeaders(response);
@@ -995,8 +1041,29 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
         return transitUrl.toString();
     }
 
-    private Response performRequest(final String method, final String endpoint, final Map<String, String> parameters, final HttpEntity entity) throws IOException {
-        final Request request = new Request(method, endpoint);
+    private Request addRequestHeaders(final Request request, final Map<String, String> headers) {
+        final RequestOptions.Builder requestOptionsBuilder = request.getOptions().toBuilder();
+        addJWTAuthorizationHeader(requestOptionsBuilder, oAuth2AccessTokenProvider);
+        if (headers != null && !headers.isEmpty()) {
+            headers.forEach(requestOptionsBuilder::addHeader);
+        }
+        request.setOptions(requestOptionsBuilder.build());
+        return request;
+    }
+
+    private Response performRequest(final String method, final String endpoint, final ElasticsearchRequestOptions elasticsearchRequestOptions, final HttpEntity entity) throws IOException {
+        return performRequest(
+                method,
+                endpoint,
+                elasticsearchRequestOptions == null ? Collections.emptyMap() : elasticsearchRequestOptions.getRequestParameters(),
+                elasticsearchRequestOptions == null ? Collections.emptyMap() : elasticsearchRequestOptions.getRequestHeaders(),
+                entity
+        );
+    }
+
+    private Response performRequest(final String method, final String endpoint, final Map<String, String> parameters, final Map<String, String> headers, final HttpEntity entity) throws IOException {
+        final Request baseRequest = new Request(method, endpoint);
+        final Request request = addRequestHeaders(baseRequest, headers);
         if (parameters != null && !parameters.isEmpty()) {
             request.addParameters(parameters);
         }
@@ -1015,6 +1082,9 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
                     .append("\n")
                     .append("Parameters: ")
                     .append(prettyPrintWriter.writeValueAsString(parameters))
+                    .append("\n")
+                    .append("Request Headers: ")
+                    .append(prettyPrintWriter.writeValueAsString(headers))
                     .append("\n");
 
             if (entity != null) {
@@ -1031,5 +1101,15 @@ public class ElasticSearchClientServiceImpl extends AbstractControllerService im
         }
 
         return client.performRequest(request);
+    }
+
+    private String readContentAsUtf8String(HttpEntity entity) throws IOException {
+        return this.readContentAsString(entity, StandardCharsets.UTF_8);
+    }
+
+    private String readContentAsString(HttpEntity entity, Charset charset) throws IOException {
+        try (InputStream responseStream = entity.getContent()) {
+            return new String(responseStream.readAllBytes(), charset);
+        }
     }
 }

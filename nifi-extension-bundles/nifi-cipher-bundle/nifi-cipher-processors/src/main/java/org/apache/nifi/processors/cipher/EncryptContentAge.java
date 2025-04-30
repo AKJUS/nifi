@@ -43,7 +43,6 @@ import org.apache.nifi.processor.io.StreamCallback;
 import org.apache.nifi.processors.cipher.age.AgeKeyIndicator;
 import org.apache.nifi.processors.cipher.age.AgeKeyReader;
 import org.apache.nifi.processors.cipher.age.AgeKeyValidator;
-import org.apache.nifi.processors.cipher.age.AgeProviderResolver;
 import org.apache.nifi.processors.cipher.age.AgePublicKeyReader;
 import org.apache.nifi.processors.cipher.age.FileEncoding;
 import org.apache.nifi.processors.cipher.age.KeySource;
@@ -54,7 +53,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.channels.WritableByteChannel;
 import java.security.GeneralSecurityException;
-import java.security.Provider;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -127,14 +125,12 @@ public class EncryptContentAge extends AbstractProcessor implements VerifiablePr
             FAILURE
     );
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             FILE_ENCODING,
             PUBLIC_KEY_SOURCE,
             PUBLIC_KEY_RECIPIENTS,
             PUBLIC_KEY_RECIPIENT_RESOURCES
     );
-
-    private static final Provider CIPHER_PROVIDER = AgeProviderResolver.getCipherProvider();
 
     private static final AgeKeyReader<RecipientStanzaWriter> PUBLIC_KEY_READER = new AgePublicKeyReader();
 
@@ -164,7 +160,7 @@ public class EncryptContentAge extends AbstractProcessor implements VerifiablePr
      */
     @Override
     public final List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return PROPERTIES;
+        return PROPERTY_DESCRIPTORS;
     }
 
     /**
@@ -231,8 +227,8 @@ public class EncryptContentAge extends AbstractProcessor implements VerifiablePr
 
     private EncryptingChannelFactory getEncryptingChannelFactory(final FileEncoding fileEncoding) {
         return switch (fileEncoding) {
-            case ASCII -> new ArmoredEncryptingChannelFactory(CIPHER_PROVIDER);
-            case BINARY -> new StandardEncryptingChannelFactory(CIPHER_PROVIDER);
+            case ASCII -> new ArmoredEncryptingChannelFactory();
+            case BINARY -> new StandardEncryptingChannelFactory();
         };
     }
 

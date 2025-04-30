@@ -33,6 +33,7 @@ import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.elasticsearch.ElasticSearchClientService;
 import org.apache.nifi.elasticsearch.ElasticsearchException;
+import org.apache.nifi.elasticsearch.ElasticsearchRequestOptions;
 import org.apache.nifi.elasticsearch.IndexOperationRequest;
 import org.apache.nifi.elasticsearch.IndexOperationResponse;
 import org.apache.nifi.expression.ExpressionLanguageScope;
@@ -75,6 +76,14 @@ import java.util.Set;
                         "If the value is null or blank, the Bulk header will be omitted for the document operation. " +
                         "These parameters will override any matching parameters in the _bulk request body."),
         @DynamicProperty(
+                name = "The name of the HTTP request header",
+                value = "A Record Path expression to retrieve the HTTP request header value",
+                expressionLanguageScope = ExpressionLanguageScope.FLOWFILE_ATTRIBUTES,
+                description = "Prefix: " + ElasticsearchRestProcessor.DYNAMIC_PROPERTY_PREFIX_REQUEST_HEADER +
+                        " - adds the specified property name/value as a HTTP request header in the Elasticsearch request. " +
+                        "If the Record Path expression results in a null or blank value, the HTTP request header will be omitted. " +
+                        "If FlowFiles are batched, only the first FlowFile in the batch is used to evaluate property values."),
+        @DynamicProperty(
                 name = "The name of a URL query parameter to add",
                 value = "The value of the URL query parameter",
                 expressionLanguageScope = ExpressionLanguageScope.FLOWFILE_ATTRIBUTES,
@@ -110,14 +119,14 @@ public class PutElasticsearchJson extends AbstractPutElasticsearch {
             .name("put-es-json-scripted-upsert")
             .displayName("Scripted Upsert")
             .description("Whether to add the scripted_upsert flag to the Upsert Operation. " +
-                    "Forces Elasticsearch to execute the Script whether or not the document exists, defaults to false. " +
+                    "If true, forces Elasticsearch to execute the Script whether or not the document exists, defaults to false. " +
                     "If the Upsert Document provided (from FlowFile content) will be empty, but sure to set the " +
                     CLIENT_SERVICE.getDisplayName() + " controller service's " + ElasticSearchClientService.SUPPRESS_NULLS.getDisplayName() +
                     " to " + ElasticSearchClientService.NEVER_SUPPRESS.getDisplayName() + " or no \"upsert\" doc will be, " +
                     "included in the request to Elasticsearch and the operation will not create a new document for the script " +
                     "to execute against, resulting in a \"not_found\" error")
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .allowableValues("true", "false")
+            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
             .defaultValue("false")
             .build();
 
@@ -234,7 +243,7 @@ public class PutElasticsearchJson extends AbstractPutElasticsearch {
         final boolean scriptedUpsert = context.getProperty(SCRIPTED_UPSERT).evaluateAttributeExpressions(input).asBoolean();
         final Map<String, Object> dynamicTemplatesMap = getMapFromAttribute(DYNAMIC_TEMPLATES, context, input);
 
-        final Map<String, String> dynamicProperties = getDynamicProperties(context, input);
+        final Map<String, String> dynamicProperties = getRequestParametersFromDynamicProperties(context, input);
         final Map<String, String> bulkHeaderFields = getBulkHeaderParameters(dynamicProperties);
 
         final String charset = context.getProperty(CHARSET).evaluateAttributeExpressions(input).getValue();
@@ -272,8 +281,9 @@ public class PutElasticsearchJson extends AbstractPutElasticsearch {
     }
 
     private List<FlowFile> indexDocuments(final List<IndexOperationRequest> operations, final List<FlowFile> originals, final ProcessContext context, final ProcessSession session) throws IOException {
-        final Map<String, String> dynamicProperties = getDynamicProperties(context, originals.getFirst());
-        final IndexOperationResponse response = clientService.get().bulk(operations, getRequestURLParameters(dynamicProperties));
+        final Map<String, String> dynamicProperties = getRequestParametersFromDynamicProperties(context, originals.getFirst());
+        final IndexOperationResponse response = clientService.get().bulk(operations,
+                new ElasticsearchRequestOptions(getRequestURLParameters(dynamicProperties), getRequestHeadersFromDynamicProperties(context, originals.getFirst())));
 
         final Map<Integer, Map<String, Object>> errors = findElasticsearchResponseErrors(response);
         final List<FlowFile> errorDocuments = new ArrayList<>(errors.size());

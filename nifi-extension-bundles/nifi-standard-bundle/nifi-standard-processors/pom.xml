@@ -14,7 +14,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-standard-bundle</artifactId>
-        <version>2.2.0-SNAPSHOT</version>
+        <version>2.4.0-SNAPSHOT</version>
     </parent>
     <artifactId>nifi-standard-processors</artifactId>
     <packaging>jar</packaging>
@@ -22,12 +22,11 @@
         <dependency>
             <groupId>org.apache.ftpserver</groupId>
             <artifactId>ftpserver-core</artifactId>
-            <version>1.2.0</version>
+            <version>1.2.1</version>
         </dependency>
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>33.4.0-jre</version>
         </dependency>
         <dependency>
             <groupId>com.google.code.findbugs</groupId>
@@ -37,7 +36,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-standard-record-utils</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -47,7 +46,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-json-record-utils</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -57,7 +56,7 @@
         <dependency>
             <groupId>com.github.palindromicity</groupId>
             <artifactId>simple-syslog-5424</artifactId>
-            <version>0.0.16</version>
+            <version>0.0.18</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -75,7 +74,7 @@
         <dependency>
             <groupId>org.apache.sshd</groupId>
             <artifactId>sshd-common</artifactId>
-            <version>2.14.0</version>
+            <version>${org.apache.sshd.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -85,7 +84,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-dbcp-base</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -105,12 +104,12 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-put-pattern</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-serialization-services-shared</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -147,7 +146,7 @@
         <dependency>
             <groupId>org.apache.ftpserver</groupId>
             <artifactId>ftplet-api</artifactId>
-            <version>1.2.0</version>
+            <version>1.2.1</version>
         </dependency>
         <dependency>
             <groupId>jakarta.servlet</groupId>
@@ -164,102 +163,102 @@
         <dependency>
             <groupId>com.squareup.okio</groupId>
             <artifactId>okio-jvm</artifactId>
-            <version>3.9.1</version>
+            <version>${okio.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-bin-manager</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-listed-entity</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-event-put</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-event-listen</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-event-transport</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-file-transfer</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-syslog-utils</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-utils</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-path</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-ssl-context-service-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-lookup-service-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-flowfile-packager</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-jetty-configuration</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-distributed-cache-client-service-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-http-context-map-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-serialization-service-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-proxy-configuration-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-sink-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>commons-io</groupId>
@@ -294,12 +293,12 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-security-cert</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-xml-processing</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>com.hierynomus</groupId>
@@ -383,12 +382,16 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-avro-record-utils</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-dbcp-service-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-database-dialect-service-api</artifactId>
         </dependency>
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
@@ -405,7 +408,7 @@
         <dependency>
             <groupId>net.datafaker</groupId>
             <artifactId>datafaker</artifactId>
-            <version>2.4.2</version>
+            <version>2.4.3</version>
             <exclusions>
                 <!-- Exclude snakeyaml with android qualifier -->
                 <exclusion>
@@ -421,7 +424,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-distributed-cache-client-service</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -431,13 +434,13 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-serialization-services</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-lookup-services</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -496,22 +499,22 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-calcite-utils</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-schema-registry-service-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-database-utils</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-oauth2-provider-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>jakarta.xml.bind</groupId>
@@ -534,19 +537,19 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-database-test-utils</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-security-ssl</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-security-cert-builder</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -557,17 +560,17 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-json-schema-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-json-schema-shared</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-migration-utils</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
         </dependency>
 
         <!-- Test Dependencies for database processors -->
@@ -579,13 +582,13 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-dbcp-service</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0-SNAPSHOT</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.7.4</version>
+            <version>42.7.5</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -625,9 +628,10 @@
                         <exclude>src/test/resources/TestConvertRecord/input/person_bad_enum.json</exclude>
                         <exclude>src/test/resources/TestConvertRecord/input/person_long_id.json</exclude>
                         <exclude>src/test/resources/TestConvertRecord/input/person.json</exclude>
-                        <exclude>src/test/resources/TestConvertRecord/input/person_dropfield.json</exclude>
+                        <exclude>src/test/resources/TestConvertRecord/input/personJob_dropfield.json</exclude>
                         <exclude>src/test/resources/TestConvertRecord/schema/person_with_union_enum_string.avsc</exclude>
                         <exclude>src/test/resources/TestConvertRecord/schema/person.avsc</exclude>
+                        <exclude>src/test/resources/TestConvertRecord/schema/personJob.avsc</exclude>
                         <exclude>src/test/resources/TestCountText/jabberwocky.txt</exclude>
                         <exclude>src/test/resources/TestExtractGrok/apache.log</exclude>
                         <exclude>src/test/resources/TestExtractGrok/patterns</exclude>

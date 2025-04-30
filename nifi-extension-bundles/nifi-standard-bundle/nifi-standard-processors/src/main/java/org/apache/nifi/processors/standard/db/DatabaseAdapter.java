@@ -81,16 +81,6 @@ public interface DatabaseAdapter {
     }
 
     /**
-     * Tells How many times the column values need to be inserted into the prepared statement. Some DBs (such as MySQL) need the values specified twice in the statement,
-     * some need only to specify them once.
-     *
-     * @return An integer corresponding to the number of times to insert column values into the prepared statement for UPSERT, or -1 if upsert is not supported.
-     */
-    default int getTimesToAddColumnObjectsForUpsert() {
-        return supportsUpsert() ? 1 : -1;
-    }
-
-    /**
      * Returns an SQL UPSERT statement - i.e. UPDATE record or INSERT if id doesn't exist.
      * <br /><br />
      * There is no standard way of doing this so not all adapters support it - use together with {@link #supportsUpsert()}!
@@ -120,32 +110,8 @@ public interface DatabaseAdapter {
         throw new UnsupportedOperationException("UPSERT is not supported for " + getName());
     }
 
-    /**
-     * <p>Returns a bare identifier string by removing wrapping escape characters
-     * from identifier strings such as table and column names.</p>
-     * <p>The default implementation of this method removes double quotes.
-     * If the target database engine supports different escape characters, then its DatabaseAdapter implementation should override
-     * this method so that such escape characters can be removed properly.</p>
-     *
-     * @param identifier An identifier which may be wrapped with escape characters
-     * @return An unwrapped identifier string, or null if the input identifier is null
-     */
-    default String unwrapIdentifier(String identifier) {
-        return identifier == null ? null : identifier.replaceAll("\"", "");
-    }
-
     default String getTableAliasClause(String tableName) {
         return "AS " + tableName;
-    }
-
-    default String getTableQuoteString() {
-        // ANSI standard is a double quote
-        return "\"";
-    }
-
-    default String getColumnQuoteString() {
-        // ANSI standard is a double quote
-        return "\"";
     }
 
     default boolean supportsCreateTableIfNotExists() {
@@ -155,11 +121,9 @@ public interface DatabaseAdapter {
     /**
      * Generates a CREATE TABLE statement using the specified table schema
      * @param tableSchema The table schema including column information
-     * @param quoteTableName Whether to quote the table name in the generated DDL
-     * @param quoteColumnNames Whether to quote column names in the generated DDL
      * @return A String containing DDL to create the specified table
      */
-    default String getCreateTableStatement(TableSchema tableSchema, boolean quoteTableName, boolean quoteColumnNames) {
+    default String getCreateTableStatement(TableSchema tableSchema) {
         StringBuilder createTableStatement = new StringBuilder();
 
         List<ColumnDescription> columns = tableSchema.getColumnsAsList();
@@ -167,9 +131,7 @@ public interface DatabaseAdapter {
         Set<String> primaryKeyColumnNames = tableSchema.getPrimaryKeyColumnNames();
         for (ColumnDescription column : columns) {
             StringBuilder sb = new StringBuilder()
-                    .append(quoteColumnNames ? getColumnQuoteString() : "")
                     .append(column.getColumnName())
-                    .append(quoteColumnNames ? getColumnQuoteString() : "")
                     .append(" ")
                     .append(getSQLForDataType(column.getDataType()))
                     .append(column.isNullable() ? "" : " NOT NULL")
@@ -178,7 +140,7 @@ public interface DatabaseAdapter {
         }
 
         createTableStatement.append("CREATE TABLE IF NOT EXISTS ")
-                .append(generateTableName(quoteTableName, tableSchema.getCatalogName(), tableSchema.getSchemaName(), tableSchema.getTableName(), tableSchema))
+                .append(generateTableName(tableSchema.getCatalogName(), tableSchema.getSchemaName(), tableSchema.getTableName(), tableSchema))
                 .append(" (")
                 .append(String.join(", ", columnsAndDatatypes))
                 .append(") ");
@@ -186,29 +148,25 @@ public interface DatabaseAdapter {
         return createTableStatement.toString();
     }
 
-    default List<String> getAlterTableStatements(String tableName, List<ColumnDescription> columnsToAdd, final boolean quoteTableName, final boolean quoteColumnNames) {
+    default String getAlterTableStatement(String tableName, List<ColumnDescription> columnsToAdd) {
         StringBuilder createTableStatement = new StringBuilder();
 
         List<String> columnsAndDatatypes = new ArrayList<>(columnsToAdd.size());
         for (ColumnDescription column : columnsToAdd) {
             StringBuilder sb = new StringBuilder()
-                    .append(quoteColumnNames ? getColumnQuoteString() : "")
                     .append(column.getColumnName())
-                    .append(quoteColumnNames ? getColumnQuoteString() : "")
                     .append(" ")
                     .append(getSQLForDataType(column.getDataType()));
             columnsAndDatatypes.add(sb.toString());
         }
 
         createTableStatement.append("ALTER TABLE ")
-                .append(quoteTableName ? getTableQuoteString() : "")
                 .append(tableName)
-                .append(quoteTableName ? getTableQuoteString() : "")
                 .append(" ADD COLUMNS (")
                 .append(String.join(", ", columnsAndDatatypes))
                 .append(") ");
 
-        return List.of(createTableStatement.toString());
+        return createTableStatement.toString();
     }
 
     /**
@@ -227,39 +185,19 @@ public interface DatabaseAdapter {
         return JDBCType.valueOf(sqlType).getName();
     }
 
-    default String generateTableName(final boolean quoteTableName, final String catalog, final String schemaName, final String tableName, final TableSchema tableSchema) {
+    default String generateTableName(final String catalog, final String schemaName, final String tableName, final TableSchema tableSchema) {
         final StringBuilder tableNameBuilder = new StringBuilder();
         if (catalog != null) {
-            if (quoteTableName) {
-                tableNameBuilder.append(tableSchema.getQuotedIdentifierString())
-                        .append(catalog)
-                        .append(tableSchema.getQuotedIdentifierString());
-            } else {
-                tableNameBuilder.append(catalog);
-            }
-
+            tableNameBuilder.append(catalog);
             tableNameBuilder.append(".");
         }
 
         if (schemaName != null) {
-            if (quoteTableName) {
-                tableNameBuilder.append(tableSchema.getQuotedIdentifierString())
-                        .append(schemaName)
-                        .append(tableSchema.getQuotedIdentifierString());
-            } else {
-                tableNameBuilder.append(schemaName);
-            }
-
+            tableNameBuilder.append(schemaName);
             tableNameBuilder.append(".");
         }
 
-        if (quoteTableName) {
-            tableNameBuilder.append(tableSchema.getQuotedIdentifierString())
-                    .append(tableName)
-                    .append(tableSchema.getQuotedIdentifierString());
-        } else {
-            tableNameBuilder.append(tableName);
-        }
+        tableNameBuilder.append(tableName);
 
         return tableNameBuilder.toString();
     }

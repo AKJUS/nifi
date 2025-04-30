@@ -99,8 +99,13 @@ public abstract class AbstractJoltTransform extends AbstractProcessor {
             .required(true)
             .build();
 
-    static final List<PropertyDescriptor> PROPERTIES = List.of(JOLT_TRANSFORM, JOLT_SPEC, CUSTOM_CLASS,
-            MODULES, TRANSFORM_CACHE_SIZE);
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
+            JOLT_TRANSFORM,
+            JOLT_SPEC,
+            CUSTOM_CLASS,
+            MODULES,
+            TRANSFORM_CACHE_SIZE
+    );
 
     /**
      * It is a cache for transform objects. It keeps values indexed by jolt specification string.
@@ -108,6 +113,10 @@ public abstract class AbstractJoltTransform extends AbstractProcessor {
      * when there is no jolt-record-spec specified).
      */
     private Cache<Optional<String>, JoltTransform> transformCache;
+
+    protected static List<PropertyDescriptor> getCommonPropertyDescriptors() {
+        return PROPERTY_DESCRIPTORS;
+    }
 
     @OnScheduled
     public void setup(final ProcessContext context) {
@@ -228,15 +237,8 @@ public abstract class AbstractJoltTransform extends AbstractProcessor {
     }
 
     private String readTransform(final PropertyValue propertyValue, final FlowFile flowFile) {
-        final String transform;
-
-        if (propertyValue.isExpressionLanguagePresent()) {
-            transform = propertyValue.evaluateAttributeExpressions(flowFile).getValue();
-        } else {
-            transform = readTransform(propertyValue);
-        }
-
-        return transform;
+        final PropertyValue evaluatedPropertyValue = propertyValue.evaluateAttributeExpressions(flowFile);
+        return readTransform(evaluatedPropertyValue);
     }
 
     String readTransform(final PropertyValue propertyValue) {

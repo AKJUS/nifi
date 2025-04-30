@@ -24,7 +24,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 @Component({
     standalone: true,
-    template: `<div [copy]="copyText">test</div>`,
+    template: ` <div [copy]="copyText">test</div>`,
     imports: [CopyDirective]
 })
 class TestComponent {
@@ -44,10 +44,20 @@ describe('CopyDirective', () => {
         component = fixture.componentInstance;
         fixture.detectChanges();
         directiveDebugEl = fixture.debugElement.query(By.directive(CopyDirective));
+        window.isSecureContext = true;
     });
 
     afterEach(() => {
         jest.restoreAllMocks();
+    });
+
+    it('should not create a copy button on mouse enter if the clipboard is not available', () => {
+        window.isSecureContext = false;
+
+        directiveDebugEl.triggerEventHandler('mouseenter', null);
+        fixture.detectChanges();
+        const copyButton = directiveDebugEl.nativeElement.querySelector('.copy-button');
+        expect(copyButton).toBeNull();
     });
 
     it('should create a copy button on mouse enter', () => {
@@ -67,13 +77,18 @@ describe('CopyDirective', () => {
         expect(copyButton).toBeNull();
     });
 
-    xit('should copy text to clipboard and change button appearance on click', async () => {
-        // Mock the clipboard's writeText method
-        Object.assign(navigator, {
-            clipboard: {
-                writeText: jest.fn().mockResolvedValue(undefined)
-            }
+    it('should copy text to clipboard and change button appearance on click', async () => {
+        // Mock the clipboard object with a writable property
+        const mockClipboard = {
+            writeText: jest.fn().mockResolvedValue(undefined)
+        };
+
+        // Use Object.defineProperty to define a writable property
+        Object.defineProperty(navigator, 'clipboard', {
+            value: mockClipboard,
+            writable: true
         });
+
         directiveDebugEl.triggerEventHandler('mouseenter', null);
         fixture.detectChanges();
         const copyButton = directiveDebugEl.nativeElement.querySelector('.copy-button');

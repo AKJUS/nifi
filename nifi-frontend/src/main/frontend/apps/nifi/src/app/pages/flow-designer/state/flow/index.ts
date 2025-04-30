@@ -72,6 +72,7 @@ export interface LoadProcessGroupResponse {
     flowStatus: ControllerStatusEntity;
     controllerBulletins: ControllerBulletinsEntity;
     connectedStateChanged: boolean;
+    registryClients: RegistryClientEntity[];
 }
 
 export interface LoadConnectionSuccess {
@@ -102,6 +103,10 @@ export interface CreateComponentRequest {
     type: ComponentType;
     position: Position;
     revision: any;
+}
+
+export interface CreateLabelRequest extends CreateComponentRequest {
+    zIndex: number;
 }
 
 export interface CreateConnectionRequest {
@@ -358,6 +363,7 @@ export interface EditComponentDialogRequest {
     uri: string;
     entity: any;
     history?: ComponentHistory;
+    parameterContexts?: ParameterContextEntity[];
 }
 
 export interface EditRemotePortDialogRequest extends EditComponentDialogRequest {
@@ -556,6 +562,7 @@ export interface CopiedSnippet {
 
 export interface VersionControlTipInput {
     versionControlInformation: VersionControlInformation;
+    registryClients?: RegistryClientEntity[];
 }
 
 /*
@@ -652,6 +659,7 @@ export interface FlowState {
     flowStatus: ControllerStatusEntity;
     refreshRpgDetails: RefreshRemoteProcessGroupPollingDetailsRequest | null;
     controllerBulletins: ControllerBulletinsEntity;
+    registryClients: RegistryClientEntity[];
     dragging: boolean;
     transitionRequired: boolean;
     skipTransform: boolean;

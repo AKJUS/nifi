@@ -55,6 +55,7 @@ public class JsonConfigBasedBoxClientServiceTestRunnerTest {
     @Test
     void invalidWhenAccountIdIsMissing() {
         testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_CONFIG_JSON, "{}");
+        // App Actor is Impersonated User by default.
         testRunner.assertNotValid(testSubject);
     }
 
@@ -83,6 +84,54 @@ public class JsonConfigBasedBoxClientServiceTestRunnerTest {
     void invalidWhenAppConfigJsonIsNotValid() {
         testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.ACCOUNT_ID, "account_id");
         testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_CONFIG_JSON, "not_valid_json_string");
+        testRunner.assertNotValid(testSubject);
+    }
+
+    @Test
+    void validWhenAppActorIsServiceAccount() {
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_ACTOR, BoxAppActor.SERVICE_ACCOUNT);
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_CONFIG_JSON, "{}");
+        testRunner.assertValid(testSubject);
+    }
+
+    @Test
+    void invalidWhenAppActorIsServiceAccountAndAccountIdIsSet() {
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_ACTOR, BoxAppActor.SERVICE_ACCOUNT);
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.ACCOUNT_ID, "account_id");
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_CONFIG_JSON, "{}");
+        testRunner.assertValid(testSubject);
+    }
+
+    @Test
+    void validWhenAppActorIsImpersonatedUserAndAccountIdIsSet() {
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_ACTOR, BoxAppActor.IMPERSONATED_USER);
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.ACCOUNT_ID, "account_id");
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_CONFIG_JSON, "{}");
+        testRunner.assertValid(testSubject);
+    }
+
+    @Test
+    void invalidWhenAppActorIsImpersonatedUserAndAccountIdIsMissing() {
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_ACTOR, BoxAppActor.IMPERSONATED_USER);
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_CONFIG_JSON, "{}");
+        testRunner.assertNotValid(testSubject);
+    }
+
+    @Test
+    void validWhenCustomTimeoutsAreSet() {
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_ACTOR, BoxAppActor.SERVICE_ACCOUNT);
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_CONFIG_JSON, "{}");
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.CONNECT_TIMEOUT, "1 min");
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.READ_TIMEOUT, "10 sec");
+        testRunner.assertValid(testSubject);
+    }
+
+    @Test
+    void invalidWhenTimeoutsAreNotTimePeriods() {
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_ACTOR, BoxAppActor.SERVICE_ACCOUNT);
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.APP_CONFIG_JSON, "{}");
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.CONNECT_TIMEOUT, "not_a_time_period");
+        testRunner.setProperty(testSubject, JsonConfigBasedBoxClientService.READ_TIMEOUT, "1234");
         testRunner.assertNotValid(testSubject);
     }
 }

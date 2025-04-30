@@ -64,6 +64,7 @@ import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.migration.PropertyConfiguration;
 import org.apache.nifi.oauth2.OAuth2AccessTokenProvider;
+import org.apache.nifi.oauth2.TokenRefreshStrategy;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
@@ -88,6 +89,7 @@ import javax.annotation.Nullable;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.X509TrustManager;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -267,6 +269,15 @@ public class InvokeHTTP extends AbstractProcessor {
             .required(false)
             .build();
 
+    public static final PropertyDescriptor REQUEST_OAUTH2_REFRESH_TOKEN = new PropertyDescriptor.Builder()
+            .name("OAuth2 Access Token Refresh Strategy")
+            .description("Specifies which strategy should be used to refresh the OAuth2 Access Token.")
+            .required(false)
+            .defaultValue(TokenRefreshStrategy.ON_TOKEN_EXPIRATION)
+            .allowableValues(TokenRefreshStrategy.class)
+            .dependsOn(REQUEST_OAUTH2_ACCESS_TOKEN_PROVIDER)
+            .build();
+
     public static final PropertyDescriptor REQUEST_USERNAME = new PropertyDescriptor.Builder()
             .name("Request Username")
             .description("The username provided for authentication of HTTP requests. Encoded using Base64 for HTTP Basic Authentication as described in RFC 7617.")
@@ -285,7 +296,7 @@ public class InvokeHTTP extends AbstractProcessor {
     public static final PropertyDescriptor REQUEST_DIGEST_AUTHENTICATION_ENABLED = new PropertyDescriptor.Builder()
             .name("Request Digest Authentication Enabled")
             .description("Enable Digest Authentication on HTTP requests with Username and Password credentials as described in RFC 7616.")
-            .required(false)
+            .required(true)
             .defaultValue("false")
             .allowableValues("true", "false")
             .dependsOn(REQUEST_USERNAME)
@@ -394,6 +405,7 @@ public class InvokeHTTP extends AbstractProcessor {
     public static final PropertyDescriptor RESPONSE_BODY_ATTRIBUTE_SIZE = new PropertyDescriptor.Builder()
             .name("Response Body Attribute Size")
             .description("Maximum size in bytes applied when writing an HTTP response body to a FlowFile attribute. Attributes exceeding the maximum will be truncated.")
+            .required(true)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
             .defaultValue("256")
             .dependsOn(RESPONSE_BODY_ATTRIBUTE_NAME)
@@ -483,7 +495,7 @@ public class InvokeHTTP extends AbstractProcessor {
 
     private static final PropertyDescriptor PROXY_CONFIGURATION_SERVICE = ProxyConfiguration.createProxyConfigPropertyDescriptor(PROXY_SPECS);
 
-    public static final List<PropertyDescriptor> PROPERTIES = List.of(
+    public static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             HTTP_METHOD,
             HTTP_URL,
             HTTP2_DISABLED,
@@ -495,6 +507,7 @@ public class InvokeHTTP extends AbstractProcessor {
             SOCKET_IDLE_CONNECTIONS,
             PROXY_CONFIGURATION_SERVICE,
             REQUEST_OAUTH2_ACCESS_TOKEN_PROVIDER,
+            REQUEST_OAUTH2_REFRESH_TOKEN,
             REQUEST_USERNAME,
             REQUEST_PASSWORD,
             REQUEST_DIGEST_AUTHENTICATION_ENABLED,
@@ -563,15 +576,13 @@ public class InvokeHTTP extends AbstractProcessor {
 
     private volatile Pattern requestHeaderAttributesPattern = null;
 
-    private volatile boolean chunkedTransferEncoding = false;
-
     private volatile Optional<OAuth2AccessTokenProvider> oauth2AccessTokenProviderOptional;
 
     private final AtomicReference<OkHttpClient> okHttpClientAtomicReference = new AtomicReference<>();
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return PROPERTIES;
+        return PROPERTY_DESCRIPTORS;
     }
 
     @Override
@@ -794,8 +805,6 @@ public class InvokeHTTP extends AbstractProcessor {
 
         setAuthenticator(okHttpClientBuilder, context);
 
-        chunkedTransferEncoding = context.getProperty(REQUEST_CHUNKED_TRANSFER_ENCODING_ENABLED).asBoolean();
-
         okHttpClientAtomicReference.set(okHttpClientBuilder.build());
     }
 
@@ -816,7 +825,7 @@ public class InvokeHTTP extends AbstractProcessor {
         final String authUser = trimToEmpty(context.getProperty(REQUEST_USERNAME).getValue());
 
         // If the username/password properties are set then check if digest auth is being used
-        if (!authUser.isEmpty() && "true".equalsIgnoreCase(context.getProperty(REQUEST_DIGEST_AUTHENTICATION_ENABLED).getValue())) {
+        if (!authUser.isEmpty() && context.getProperty(REQUEST_DIGEST_AUTHENTICATION_ENABLED).asBoolean()) {
             final String authPass = trimToEmpty(context.getProperty(REQUEST_PASSWORD).getValue());
 
             final Map<String, CachingAuthenticator> authCache = new ConcurrentHashMap<>();
@@ -836,6 +845,8 @@ public class InvokeHTTP extends AbstractProcessor {
 
         // Checking to see if the property to put the body of the response in an attribute was set
         boolean putToAttribute = context.getProperty(RESPONSE_BODY_ATTRIBUTE_NAME).isSet();
+        final int maxAttributeSize = putToAttribute ? context.getProperty(RESPONSE_BODY_ATTRIBUTE_SIZE).asInteger() : 256;
+
         if (requestFlowFile == null) {
             if (context.hasNonLoopConnection()) {
                 return;
@@ -851,7 +862,6 @@ public class InvokeHTTP extends AbstractProcessor {
             }
         }
 
-        final int maxAttributeSize = context.getProperty(RESPONSE_BODY_ATTRIBUTE_SIZE).asInteger();
         final ComponentLog logger = getLogger();
         final UUID txId = UUID.randomUUID();
 
@@ -860,7 +870,6 @@ public class InvokeHTTP extends AbstractProcessor {
             final String urlProperty = trimToEmpty(context.getProperty(HTTP_URL).evaluateAttributeExpressions(requestFlowFile).getValue());
 
             Request httpRequest = configureRequest(context, session, requestFlowFile, urlProperty);
-            logRequest(logger, httpRequest);
 
             if (httpRequest.body() != null) {
                 session.getProvenanceReporter().send(requestFlowFile, urlProperty, true);
@@ -868,11 +877,12 @@ public class InvokeHTTP extends AbstractProcessor {
 
             final long startNanos = System.nanoTime();
 
+            logger.debug("Request [{}] {} {} starting", txId, httpRequest.method(), httpRequest.url());
             try (Response responseHttp = okHttpClient.newCall(httpRequest).execute()) {
-                logResponse(logger, urlProperty, responseHttp);
+                final int statusCode = responseHttp.code();
+                logger.info("Request [{}] {} {} HTTP {} [{}]", txId, httpRequest.method(), httpRequest.url(), statusCode, responseHttp.protocol());
 
                 // store the status code and message
-                int statusCode = responseHttp.code();
                 String statusMessage = responseHttp.message();
 
                 // Create a map of the status attributes that are always written to the request and response FlowFiles
@@ -1028,23 +1038,15 @@ public class InvokeHTTP extends AbstractProcessor {
         final String authUser = trimToEmpty(context.getProperty(REQUEST_USERNAME).getValue());
 
         // If the username/password properties are set then check if digest auth is being used
-        if ("false".equalsIgnoreCase(context.getProperty(REQUEST_DIGEST_AUTHENTICATION_ENABLED).getValue())) {
-            if (!authUser.isEmpty()) {
-                final String authPass = trimToEmpty(context.getProperty(REQUEST_PASSWORD).getValue());
+        if (!authUser.isEmpty() && !context.getProperty(REQUEST_DIGEST_AUTHENTICATION_ENABLED).asBoolean()) {
+            final String authPass = trimToEmpty(context.getProperty(REQUEST_PASSWORD).getValue());
 
-                String credential = Credentials.basic(authUser, authPass);
-                requestBuilder.header(HttpHeader.AUTHORIZATION.getHeader(), credential);
-            } else {
-                oauth2AccessTokenProviderOptional.ifPresent(oauth2AccessTokenProvider ->
+            String credential = Credentials.basic(authUser, authPass);
+            requestBuilder.header(HttpHeader.AUTHORIZATION.getHeader(), credential);
+        } else {
+            oauth2AccessTokenProviderOptional.ifPresent(oauth2AccessTokenProvider ->
                     requestBuilder.addHeader(HttpHeader.AUTHORIZATION.getHeader(), "Bearer " + oauth2AccessTokenProvider.getAccessDetails().getAccessToken())
-                );
-            }
-        }
-
-        final ContentEncodingStrategy contentEncodingStrategy =
-                context.getProperty(REQUEST_CONTENT_ENCODING).asAllowableValue(ContentEncodingStrategy.class);
-        if (ContentEncodingStrategy.GZIP == contentEncodingStrategy) {
-            requestBuilder.addHeader(HttpHeader.CONTENT_ENCODING.getHeader(), ContentEncodingStrategy.GZIP.getValue().toLowerCase());
+            );
         }
 
         final String method = getRequestMethod(context, requestFlowFile);
@@ -1054,6 +1056,12 @@ public class InvokeHTTP extends AbstractProcessor {
         if (httpMethodFound.isPresent()) {
             final HttpMethod httpMethod = httpMethodFound.get();
             if (httpMethod.isRequestBodySupported()) {
+                final ContentEncodingStrategy contentEncodingStrategy =
+                        context.getProperty(REQUEST_CONTENT_ENCODING).asAllowableValue(ContentEncodingStrategy.class);
+                if (contentEncodingStrategy == ContentEncodingStrategy.GZIP) {
+                    requestBuilder.addHeader(HttpHeader.CONTENT_ENCODING.getHeader(), ContentEncodingStrategy.GZIP.getValue().toLowerCase());
+                }
+
                 requestBody = getRequestBodyToSend(session, context, requestFlowFile, contentEncodingStrategy);
             } else {
                 requestBody = null;
@@ -1088,6 +1096,7 @@ public class InvokeHTTP extends AbstractProcessor {
             }
         }
 
+        final boolean chunkedTransferEncoding = context.getProperty(REQUEST_CHUNKED_TRANSFER_ENCODING_ENABLED).asBoolean();
         final boolean contentLengthUnknown = chunkedTransferEncoding || ContentEncodingStrategy.GZIP == contentEncodingStrategy;
         RequestBody requestBody = new RequestBody() {
             @Nullable
@@ -1219,6 +1228,17 @@ public class InvokeHTTP extends AbstractProcessor {
 
             // 1xx, 3xx, 4xx -> NO RETRY
         } else {
+            oauth2AccessTokenProviderOptional.ifPresent(oauth2AccessTokenProvider -> {
+                final TokenRefreshStrategy tokenRefreshStrategy = context.getProperty(REQUEST_OAUTH2_REFRESH_TOKEN).asAllowableValue(TokenRefreshStrategy.class);
+
+                if (tokenRefreshStrategy == TokenRefreshStrategy.ON_UNAUTHORIZED_RESPONSE && statusCode == 401) {
+                    // we are using oauth2 and we got a 401 response
+                    // it may be because the token has been revoked even though it has not expired
+                    // yet, so we force the token to be refreshed if configured to do so
+                    oauth2AccessTokenProvider.refreshAccessDetails();
+                }
+            });
+
             if (request != null) {
                 if (context.getProperty(REQUEST_FAILURE_PENALIZATION_ENABLED).asBoolean()) {
                     request = session.penalize(request);
@@ -1231,39 +1251,6 @@ public class InvokeHTTP extends AbstractProcessor {
 
     private boolean isSuccess(int statusCode) {
         return statusCode / 100 == 2;
-    }
-
-    private void logRequest(ComponentLog logger, Request request) {
-        if (logger.isDebugEnabled()) {
-            logger.debug("\nRequest to remote service:\n\t{}\n{}",
-                    request.url().url().toExternalForm(), getLogString(request.headers().toMultimap()));
-        }
-    }
-
-    private void logResponse(ComponentLog logger, String url, Response response) {
-        if (logger.isDebugEnabled()) {
-            logger.debug("\nResponse from remote service:\n\t{}\n{}",
-                    url, getLogString(response.headers().toMultimap()));
-        }
-    }
-
-    private String getLogString(Map<String, List<String>> map) {
-        StringBuilder sb = new StringBuilder();
-        for (Map.Entry<String, List<String>> entry : map.entrySet()) {
-            List<String> list = entry.getValue();
-            if (!list.isEmpty()) {
-                sb.append("\t");
-                sb.append(entry.getKey());
-                sb.append(": ");
-                if (list.size() == 1) {
-                    sb.append(list.getFirst());
-                } else {
-                    sb.append(list);
-                }
-                sb.append("\n");
-            }
-        }
-        return sb.toString();
     }
 
     /**

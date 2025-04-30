@@ -16,8 +16,6 @@
  */
 package org.apache.nifi.processors.hadoop;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -44,13 +42,13 @@ import org.apache.nifi.processors.hadoop.util.GSSExceptionRollbackYieldSessionHa
 import java.io.IOException;
 import java.security.PrivilegedAction;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_ALLOWED)
 @Tags({"hadoop", "HCFS", "HDFS", "delete", "remove", "filesystem"})
@@ -109,26 +107,27 @@ public class DeleteHDFS extends AbstractHadoopProcessor {
     protected final Pattern GLOB_PATTERN = Pattern.compile("\\[|\\]|\\*|\\?|\\^|\\{|\\}|\\\\c");
     protected final Matcher GLOB_MATCHER = GLOB_PATTERN.matcher("");
 
-    private static final Set<Relationship> relationships;
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(
+            REL_SUCCESS,
+            REL_FAILURE
+    );
 
-    static {
-        final Set<Relationship> relationshipSet = new HashSet<>();
-        relationshipSet.add(REL_SUCCESS);
-        relationshipSet.add(REL_FAILURE);
-        relationships = Collections.unmodifiableSet(relationshipSet);
-    }
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = Stream.concat(
+            getCommonPropertyDescriptors().stream(),
+            Stream.of(
+                FILE_OR_DIRECTORY,
+                RECURSIVE
+            )
+    ).toList();
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        List<PropertyDescriptor> props = new ArrayList<>(properties);
-        props.add(FILE_OR_DIRECTORY);
-        props.add(RECURSIVE);
-        return props;
+        return PROPERTY_DESCRIPTORS;
     }
 
     @Override
     public Set<Relationship> getRelationships() {
-        return relationships;
+        return RELATIONSHIPS;
     }
 
     @Override
@@ -151,7 +150,7 @@ public class DeleteHDFS extends AbstractHadoopProcessor {
             FlowFile flowFile = finalFlowFile;
             try {
                 // Check if the user has supplied a file or directory pattern
-                List<Path> pathList = Lists.newArrayList();
+                List<Path> pathList = new ArrayList<>();
                 if (GLOB_MATCHER.reset(fileOrDirectoryName).find()) {
                     FileStatus[] fileStatuses = fileSystem.globStatus(new Path(fileOrDirectoryName));
                     if (fileStatuses != null) {
@@ -167,7 +166,7 @@ public class DeleteHDFS extends AbstractHadoopProcessor {
                 for (Path path : pathList) {
                     if (fileSystem.exists(path)) {
                         try {
-                            Map<String, String> attributes = Maps.newHashMapWithExpectedSize(2);
+                            Map<String, String> attributes = new HashMap<>(2);
                             attributes.put(getAttributePrefix() + ".filename", path.getName());
                             attributes.put(getAttributePrefix() + ".path", path.getParent().toString());
                             flowFile = session.putAllAttributes(flowFile, attributes);
@@ -193,7 +192,7 @@ public class DeleteHDFS extends AbstractHadoopProcessor {
                                 // external HDFS authorization tool (Ranger, Sentry, etc). Local ACLs could be checked but the operation would be expensive.
                                 getLogger().warn("Failed to delete file or directory", ioe);
 
-                                Map<String, String> attributes = Maps.newHashMapWithExpectedSize(1);
+                                Map<String, String> attributes = new HashMap<>(1);
                                 // The error message is helpful in understanding at a flowfile level what caused the IOException (which ACL is denying the operation, e.g.)
                                 attributes.put(getAttributePrefix() + ".error.message", ioe.getMessage());
 

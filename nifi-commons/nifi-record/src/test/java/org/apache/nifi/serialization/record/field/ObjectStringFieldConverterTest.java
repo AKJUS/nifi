@@ -19,6 +19,7 @@ package org.apache.nifi.serialization.record.field;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -44,6 +45,12 @@ class ObjectStringFieldConverterTest {
     private static final String DATE_TIME_NANOSECONDS = "2000-01-01 12:00:00.123456789";
 
     private static final String DATE_TIME_ZONE_OFFSET_PATTERN = "yyyy-MM-dd HH:mm:ssZZZZZ";
+
+    private static final String EMPTY_ARRAY_STRING = "[]";
+
+    private static final String ARRAY_STRING_ELEMENT = String.class.getSimpleName();
+
+    private static final String ARRAY_STRING = "[String, String, String]";
 
     @Test
     void testConvertFieldNull() {
@@ -118,6 +125,37 @@ class ObjectStringFieldConverterTest {
 
         final String dateTimeZoneOffsetExpected = getDateTimeZoneOffset();
         assertEquals(dateTimeZoneOffsetExpected, string);
+    }
+
+    @Test
+    void testConvertFieldObjectArrayOfBytes() {
+        final String expected = String.class.getSimpleName();
+        final byte[] bytes = expected.getBytes(StandardCharsets.UTF_8);
+
+        final Object[] objectArray = new Object[bytes.length];
+        for (int i = 0; i < bytes.length; i++) {
+            objectArray[i] = bytes[i];
+        }
+
+        final String string = CONVERTER.convertField(objectArray, Optional.empty(), FIELD_NAME);
+        assertEquals(expected, string);
+    }
+
+    @Test
+    void testConvertFieldObjectArrayOfStrings() {
+        final Object[] objectArray = new Object[]{ARRAY_STRING_ELEMENT, ARRAY_STRING_ELEMENT, ARRAY_STRING_ELEMENT};
+
+        final String string = CONVERTER.convertField(objectArray, Optional.empty(), FIELD_NAME);
+
+        assertEquals(ARRAY_STRING, string);
+    }
+
+    @Test
+    void testConvertFieldObjectArrayEmpty() {
+        final Object[] objectArray = new Object[0];
+
+        final String string = CONVERTER.convertField(objectArray, Optional.empty(), FIELD_NAME);
+        assertEquals(EMPTY_ARRAY_STRING, string);
     }
 
     private String getDateTimeZoneOffset() {

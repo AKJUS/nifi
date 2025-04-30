@@ -109,7 +109,7 @@ public class SplitExcel extends AbstractProcessor {
             .description("The individual Excel 'segments' of the original Excel FlowFile will be routed to this relationship.")
             .build();
 
-    private static final List<PropertyDescriptor> DESCRIPTORS = List.of(
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             PROTECTION_TYPE,
             PASSWORD
     );
@@ -122,7 +122,7 @@ public class SplitExcel extends AbstractProcessor {
 
     private static final CellCopyPolicy CELL_COPY_POLICY = new CellCopyPolicy.Builder()
             .cellFormula(false) // NOTE: setting to false allows for copying the evaluated formula value.
-            .cellStyle(false) // NOTE: setting to false avoids exceeding the maximum number of cell styles (64000) in a .xlsx Workbook.
+            .cellStyle(CellCopyPolicy.DEFAULT_COPY_CELL_STYLE_POLICY)
             .cellValue(CellCopyPolicy.DEFAULT_COPY_CELL_VALUE_POLICY)
             .condenseRows(CellCopyPolicy.DEFAULT_CONDENSE_ROWS_POLICY)
             .copyHyperlink(CellCopyPolicy.DEFAULT_COPY_HYPERLINK_POLICY)
@@ -138,7 +138,7 @@ public class SplitExcel extends AbstractProcessor {
 
     @Override
     public final List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return DESCRIPTORS;
+        return PROPERTY_DESCRIPTORS;
     }
 
     @Override
@@ -148,7 +148,9 @@ public class SplitExcel extends AbstractProcessor {
             return;
         }
 
-        final String password = context.getProperty(PASSWORD).getValue();
+        final ProtectionType protectionType = context.getProperty(PROTECTION_TYPE).asAllowableValue(ProtectionType.class);
+        final String password = protectionType == ProtectionType.PASSWORD ? context.getProperty(PASSWORD).getValue() : null;
+
         final List<WorkbookSplit> workbookSplits = new ArrayList<>();
 
         try {

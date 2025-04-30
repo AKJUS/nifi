@@ -124,7 +124,7 @@ public class EvaluateJsonPath extends AbstractJsonPathProcessor {
             .dependsOn(DESTINATION, DESTINATION_ATTRIBUTE)
             .build();
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             DESTINATION,
             RETURN_TYPE,
             PATH_NOT_FOUND,
@@ -191,7 +191,7 @@ public class EvaluateJsonPath extends AbstractJsonPathProcessor {
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return PROPERTIES;
+        return PROPERTY_DESCRIPTORS;
     }
 
     @Override
@@ -243,7 +243,7 @@ public class EvaluateJsonPath extends AbstractJsonPathProcessor {
         if (returnType.equals(RETURN_TYPE_AUTO)) {
             returnType = destinationIsAttribute ? RETURN_TYPE_SCALAR : RETURN_TYPE_JSON;
         }
-        pathNotFound = processContext.getProperty(PATH_NOT_FOUND).getValue();
+        pathNotFound = destinationIsAttribute ? processContext.getProperty(PATH_NOT_FOUND).getValue() : PATH_NOT_FOUND_IGNORE;
         nullDefaultValue = NULL_REPRESENTATION_MAP.get(processContext.getProperty(NULL_VALUE_DEFAULT_REPRESENTATION).getValue());
 
         final int maxStringLength = processContext.getProperty(MAX_STRING_LENGTH).asDataSize(DataUnit.B).intValue();

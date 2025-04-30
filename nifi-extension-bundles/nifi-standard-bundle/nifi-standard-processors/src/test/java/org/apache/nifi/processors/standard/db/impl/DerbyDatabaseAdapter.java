@@ -117,7 +117,7 @@ public class DerbyDatabaseAdapter implements DatabaseAdapter {
     }
 
     @Override
-    public String getCreateTableStatement(final TableSchema tableSchema, final boolean quoteTableName, final boolean quoteColumnNames) {
+    public String getCreateTableStatement(final TableSchema tableSchema) {
         StringBuilder createTableStatement = new StringBuilder();
 
         List<ColumnDescription> columns = tableSchema.getColumnsAsList();
@@ -125,9 +125,7 @@ public class DerbyDatabaseAdapter implements DatabaseAdapter {
         Set<String> primaryKeyColumnNames = tableSchema.getPrimaryKeyColumnNames();
         for (ColumnDescription column : columns) {
             StringBuilder sb = new StringBuilder()
-                    .append(quoteColumnNames ? getColumnQuoteString() : "")
                     .append(column.getColumnName())
-                    .append(quoteColumnNames ? getColumnQuoteString() : "")
                     .append(" ")
                     .append(getSQLForDataType(column.getDataType()))
                     .append(column.isNullable() ? "" : " NOT NULL")
@@ -137,7 +135,7 @@ public class DerbyDatabaseAdapter implements DatabaseAdapter {
 
         // This will throw an exception if the table already exists, but it should only be used for tests
         createTableStatement.append("CREATE TABLE ")
-                .append(generateTableName(quoteTableName, tableSchema.getCatalogName(), tableSchema.getSchemaName(), tableSchema.getTableName(), tableSchema))
+                .append(generateTableName(tableSchema.getCatalogName(), tableSchema.getSchemaName(), tableSchema.getTableName(), tableSchema))
                 .append(" (")
                 .append(String.join(", ", columnsAndDatatypes))
                 .append(") ");
@@ -146,16 +144,14 @@ public class DerbyDatabaseAdapter implements DatabaseAdapter {
     }
 
     @Override
-    public List<String> getAlterTableStatements(final String tableName, final List<ColumnDescription> columnsToAdd, final boolean quoteTableName, final boolean quoteColumnNames) {
+    public String getAlterTableStatement(final String tableName, final List<ColumnDescription> columnsToAdd) {
         List<String> alterTableStatements = new ArrayList<>();
 
         List<String> columnsAndDatatypes = new ArrayList<>(columnsToAdd.size());
         for (ColumnDescription column : columnsToAdd) {
             String dataType = getSQLForDataType(column.getDataType());
             StringBuilder sb = new StringBuilder()
-                    .append(quoteColumnNames ? getColumnQuoteString() : "")
                     .append(column.getColumnName())
-                    .append(quoteColumnNames ? getColumnQuoteString() : "")
                     .append(" ")
                     .append(dataType);
             columnsAndDatatypes.add(sb.toString());
@@ -164,13 +160,19 @@ public class DerbyDatabaseAdapter implements DatabaseAdapter {
         for (String columnAndDataType : columnsAndDatatypes) {
             StringBuilder createTableStatement = new StringBuilder();
             alterTableStatements.add(createTableStatement.append("ALTER TABLE ")
-                    .append(quoteTableName ? getTableQuoteString() : "")
                     .append(tableName)
-                    .append(quoteTableName ? getTableQuoteString() : "")
                     .append(" ADD COLUMN ")
                     .append(columnAndDataType).toString());
         }
-        return alterTableStatements;
+
+        final String sql;
+        if (alterTableStatements.size() == 1) {
+            sql = alterTableStatements.getFirst();
+        } else {
+            throw new UnsupportedOperationException("Apache Derby does not support adding more than one column when altering tables");
+        }
+
+        return sql;
     }
 
     @Override

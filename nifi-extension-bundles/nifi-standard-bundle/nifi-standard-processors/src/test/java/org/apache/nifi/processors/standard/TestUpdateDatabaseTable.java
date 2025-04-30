@@ -77,7 +77,7 @@ public class TestUpdateDatabaseTable {
         dbDir.deleteOnExit();
         try {
             DriverManager.getConnection("jdbc:derby:" + dbDir + ";shutdown=true");
-        } catch (SQLException sqle) {
+        } catch (SQLException ignored) {
             // Ignore, most likely the DB has already been shutdown
         }
     }
@@ -88,26 +88,27 @@ public class TestUpdateDatabaseTable {
 
         try (Statement s = service.getConnection().createStatement()) {
             s.execute("DROP TABLE \"persons\"");
-        } catch (SQLException se) {
+        } catch (SQLException ignored) {
             // Ignore, table probably doesn't exist
         }
 
         try (Statement s = service.getConnection().createStatement()) {
             s.execute("DROP TABLE \"newTable\"");
-        } catch (SQLException se) {
+        } catch (SQLException ignored) {
             // Ignore, table probably doesn't exist
         }
 
         try (Statement s = service.getConnection().createStatement()) {
             s.execute("DROP SCHEMA \"testSchema\"");
-        } catch (SQLException se) {
+        } catch (SQLException ignored) {
             // Ignore, schema probably doesn't exist
         }
+
+        runner = TestRunners.newTestRunner(processor);
     }
 
     @Test
     public void testCreateTable() throws Exception {
-        runner = TestRunners.newTestRunner(processor);
         MockRecordParser readerFactory = new MockRecordParser();
 
         readerFactory.addSchemaField(new RecordField("id", RecordFieldType.INT.getDataType(), false));
@@ -169,7 +170,6 @@ public class TestUpdateDatabaseTable {
 
     @Test
     public void testAddColumnToExistingTable() throws Exception {
-        runner = TestRunners.newTestRunner(processor);
         try (final Connection conn = service.getConnection()) {
             try (final Statement stmt = conn.createStatement()) {
                 stmt.executeUpdate(createPersons);
@@ -238,7 +238,6 @@ public class TestUpdateDatabaseTable {
 
     @Test
     public void testAddExistingColumnTranslateFieldNames() throws Exception {
-        runner = TestRunners.newTestRunner(processor);
         try (final Connection conn = service.getConnection()) {
             try (final Statement stmt = conn.createStatement()) {
                 stmt.executeUpdate(createPersons);
@@ -302,7 +301,6 @@ public class TestUpdateDatabaseTable {
 
     @Test
     public void testAddExistingColumnNoTranslateFieldNames() throws Exception {
-        runner = TestRunners.newTestRunner(processor);
         try (final Connection conn = service.getConnection()) {
             try (final Statement stmt = conn.createStatement()) {
                 stmt.executeUpdate(createPersons);
@@ -377,7 +375,6 @@ public class TestUpdateDatabaseTable {
 
     @Test
     public void testAddColumnToExistingTableUpdateFieldNames() throws Exception {
-        runner = TestRunners.newTestRunner(processor);
         try (final Connection conn = service.getConnection()) {
             try (final Statement stmt = conn.createStatement()) {
                 stmt.executeUpdate(createPersons);
@@ -431,7 +428,6 @@ public class TestUpdateDatabaseTable {
                 stmt.executeUpdate(createSchema);
             }
         }
-        runner = TestRunners.newTestRunner(processor);
         MockRecordParser readerFactory = new MockRecordParser();
 
         readerFactory.addSchemaField(new RecordField("id", RecordFieldType.INT.getDataType(), false));

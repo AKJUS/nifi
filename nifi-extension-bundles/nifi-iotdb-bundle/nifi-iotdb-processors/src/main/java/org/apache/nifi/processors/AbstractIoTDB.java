@@ -19,11 +19,9 @@ package org.apache.nifi.processors;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,12 +36,13 @@ import org.apache.nifi.processors.model.DatabaseField;
 import org.apache.nifi.processors.model.DatabaseSchema;
 import org.apache.iotdb.rpc.IoTDBConnectionException;
 import org.apache.iotdb.session.Session;
-import org.apache.iotdb.tsfile.file.metadata.enums.CompressionType;
-import org.apache.iotdb.tsfile.file.metadata.enums.TSDataType;
-import org.apache.iotdb.tsfile.file.metadata.enums.TSEncoding;
-import org.apache.iotdb.tsfile.utils.Binary;
-import org.apache.iotdb.tsfile.write.record.Tablet;
-import org.apache.iotdb.tsfile.write.schema.MeasurementSchema;
+import org.apache.tsfile.file.metadata.enums.CompressionType;
+import org.apache.tsfile.enums.TSDataType;
+import org.apache.tsfile.file.metadata.enums.TSEncoding;
+import org.apache.tsfile.utils.Binary;
+import org.apache.tsfile.write.record.Tablet;
+import org.apache.tsfile.write.schema.IMeasurementSchema;
+import org.apache.tsfile.write.schema.MeasurementSchema;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.processor.AbstractProcessor;
@@ -111,19 +110,19 @@ public abstract class AbstractIoTDB extends AbstractProcessor {
             .description("Processing failed")
             .build();
 
-    private static final List<PropertyDescriptor> descriptors = new ArrayList<>();
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
+        IOTDB_HOST,
+        IOTDB_PORT,
+        USERNAME,
+        PASSWORD
+    );
 
-    private static final Set<Relationship> relationships = new LinkedHashSet<>();
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(
+        REL_SUCCESS,
+        REL_FAILURE
+    );
 
     static {
-        descriptors.add(IOTDB_HOST);
-        descriptors.add(IOTDB_PORT);
-        descriptors.add(USERNAME);
-        descriptors.add(PASSWORD);
-
-        relationships.add(REL_SUCCESS);
-        relationships.add(REL_FAILURE);
-
         typeMap.put(RecordFieldType.STRING, TSDataType.TEXT);
         typeMap.put(RecordFieldType.BOOLEAN, TSDataType.BOOLEAN);
         typeMap.put(RecordFieldType.INT, TSDataType.INT32);
@@ -149,7 +148,7 @@ public abstract class AbstractIoTDB extends AbstractProcessor {
 
     @Override
     public Set<Relationship> getRelationships() {
-        return relationships;
+        return RELATIONSHIPS;
     }
 
     @OnScheduled
@@ -184,7 +183,7 @@ public abstract class AbstractIoTDB extends AbstractProcessor {
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return Collections.unmodifiableList(descriptors);
+        return PROPERTY_DESCRIPTORS;
     }
 
     protected TSDataType getType(RecordFieldType type) {
@@ -314,7 +313,7 @@ public abstract class AbstractIoTDB extends AbstractProcessor {
         final Map<String, Tablet> tablets = new LinkedHashMap<>();
         deviceMeasurementMap.forEach(
                 (device, measurements) -> {
-                    ArrayList<MeasurementSchema> schemas = new ArrayList<>();
+                    final List<IMeasurementSchema> schemas = new ArrayList<>();
                     for (String measurement : measurements) {
                         TSDataType dataType = schema.getDataType(measurement);
                         TSEncoding encoding = schema.getEncodingType(measurement);

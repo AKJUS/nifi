@@ -252,6 +252,8 @@ export const selectControllerBulletins = createSelector(
     (state: FlowState) => state.controllerBulletins.bulletins // TODO - include others?
 );
 
+export const selectRegistryClients = createSelector(selectFlowState, (state: FlowState) => state.registryClients);
+
 export const selectNavigationCollapsed = createSelector(
     selectFlowState,
     (state: FlowState) => state.navigationCollapsed
@@ -262,11 +264,11 @@ export const selectOperationCollapsed = createSelector(selectFlowState, (state: 
 export const selectMaxZIndex = (componentType: ComponentType.Connection | ComponentType.Label) => {
     if (componentType === ComponentType.Connection) {
         return createSelector(selectConnections, (connections: any[]) =>
-            connections.reduce((maxZIndex, connection) => Math.max(maxZIndex, connection.zIndex), -1)
+            connections.reduce((maxZIndex, connection) => Math.max(maxZIndex, connection.zIndex), 0)
         );
     } else {
         return createSelector(selectLabels, (labels: any[]) =>
-            labels.reduce((maxZIndex, label) => Math.max(maxZIndex, label.zIndex), -1)
+            labels.reduce((maxZIndex, label) => Math.max(maxZIndex, label.zIndex), 0)
         );
     }
 };

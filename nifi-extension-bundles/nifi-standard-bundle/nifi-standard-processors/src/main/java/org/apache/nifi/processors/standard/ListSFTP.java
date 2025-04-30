@@ -80,7 +80,7 @@ import java.util.stream.Collectors;
 @DefaultSchedule(strategy = SchedulingStrategy.TIMER_DRIVEN, period = "1 min")
 public class ListSFTP extends ListFileTransfer {
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             FILE_TRANSFER_LISTING_STRATEGY,
             SFTPTransfer.HOSTNAME,
             SFTPTransfer.PORT,
@@ -95,7 +95,6 @@ public class ListSFTP extends ListFileTransfer {
             SFTPTransfer.FILE_FILTER_REGEX,
             SFTPTransfer.PATH_FILTER_REGEX,
             SFTPTransfer.IGNORE_DOTTED_FILES,
-            SFTPTransfer.REMOTE_POLL_BATCH_SIZE,
             SFTPTransfer.STRICT_HOST_KEY_CHECKING,
             SFTPTransfer.HOST_KEY_FILE,
             SFTPTransfer.CONNECTION_TIMEOUT,
@@ -121,13 +120,14 @@ public class ListSFTP extends ListFileTransfer {
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return PROPERTIES;
+        return PROPERTY_DESCRIPTORS;
     }
 
     @Override
     public void migrateProperties(PropertyConfiguration config) {
         super.migrateProperties(config);
         FTPTransfer.migrateProxyProperties(config);
+        config.removeProperty(FileTransfer.REMOTE_POLL_BATCH_SIZE.getName());
     }
 
     @Override

@@ -104,7 +104,7 @@ public class SslContextConfiguration {
         final WatchServiceMonitorCommand command;
 
         if (isReloadEnabled()) {
-            final String reloadIntervalProperty = properties.getProperty(SECURITY_AUTO_RELOAD_INTERVAL);
+            final String reloadIntervalProperty = properties.getProperty(SECURITY_AUTO_RELOAD_INTERVAL, NiFiProperties.DEFAULT_SECURITY_AUTO_RELOAD_INTERVAL);
             final long reloadIntervalSeconds = Math.round(FormatUtils.getPreciseTimeDuration(reloadIntervalProperty, TimeUnit.SECONDS));
             final Duration reloadDuration = Duration.ofSeconds(reloadIntervalSeconds);
 
@@ -338,7 +338,7 @@ public class SslContextConfiguration {
     }
 
     private boolean isPemStoreType(final String storeTypePropertyName) {
-        final String storeType = properties.getProperty(storeTypePropertyName);
+        final String storeType = properties.getProperty(storeTypePropertyName, EMPTY);
         return PEM_STORE_TYPE.contentEquals(storeType);
     }
 }

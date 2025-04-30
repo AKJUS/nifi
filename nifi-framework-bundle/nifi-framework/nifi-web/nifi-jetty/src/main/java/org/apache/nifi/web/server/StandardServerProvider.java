@@ -19,6 +19,7 @@ package org.apache.nifi.web.server;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.util.NiFiProperties;
 import org.apache.nifi.web.server.connector.FrameworkServerConnectorFactory;
+import org.apache.nifi.web.server.handler.ContextPathRedirectPatternRule;
 import org.apache.nifi.web.server.handler.HeaderWriterHandler;
 import org.apache.nifi.web.server.log.RequestLogProvider;
 import org.apache.nifi.web.server.log.StandardRequestLogProvider;
@@ -36,6 +37,7 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -48,6 +50,8 @@ class StandardServerProvider implements ServerProvider {
     private static final String ALL_PATHS_PATTERN = "/*";
 
     private static final String FRONTEND_CONTEXT_PATH = "/nifi";
+
+    private static final String FRONTEND_CONTEXT_PATH_DIRECTORY = "/nifi/";
 
     private final SSLContext sslContext;
 
@@ -64,12 +68,10 @@ class StandardServerProvider implements ServerProvider {
         final Server server = new Server(threadPool);
         addConnectors(server, properties, sslContext);
 
-        final Handler standardHandler = getStandardHandler(properties);
+        final Handler standardHandler = getStandardHandler();
         server.setHandler(standardHandler);
 
-        final RewriteHandler defaultRewriteHandler = new RewriteHandler();
-        final RedirectPatternRule redirectDefault = new RedirectPatternRule(ALL_PATHS_PATTERN, FRONTEND_CONTEXT_PATH);
-        defaultRewriteHandler.addRule(redirectDefault);
+        final RewriteHandler defaultRewriteHandler = getDefaultRewriteHandler(properties);
         server.setDefaultHandler(defaultRewriteHandler);
 
         final String requestLogFormat = properties.getProperty(NiFiProperties.WEB_REQUEST_LOG_FORMAT);
@@ -78,6 +80,16 @@ class StandardServerProvider implements ServerProvider {
         server.setRequestLog(requestLog);
 
         return server;
+    }
+
+    private RewriteHandler getDefaultRewriteHandler(final NiFiProperties properties) {
+        final RewriteHandler defaultRewriteHandler = new RewriteHandler();
+        final List<String> allowedContextPaths = properties.getAllowedContextPathsAsList();
+        final RedirectPatternRule redirectFrontend = new ContextPathRedirectPatternRule(FRONTEND_CONTEXT_PATH, FRONTEND_CONTEXT_PATH_DIRECTORY, allowedContextPaths);
+        defaultRewriteHandler.addRule(redirectFrontend);
+        final RedirectPatternRule redirectDefault = new ContextPathRedirectPatternRule(ALL_PATHS_PATTERN, FRONTEND_CONTEXT_PATH_DIRECTORY, allowedContextPaths);
+        defaultRewriteHandler.addRule(redirectDefault);
+        return defaultRewriteHandler;
     }
 
     private void addConnectors(final Server server, final NiFiProperties properties, final SSLContext sslContext) {
@@ -120,18 +132,12 @@ class StandardServerProvider implements ServerProvider {
         }
     }
 
-    private Handler getStandardHandler(final NiFiProperties properties) {
+    private Handler getStandardHandler() {
         // Standard Handler supporting an ordered sequence of Handlers invoked until completion
         final Handler.Collection standardHandler = new Handler.Sequence();
 
         // Set Handler for standard response headers
         standardHandler.addHandler(new HeaderWriterHandler());
-
-        // Validate Host Header when running with HTTPS enabled
-        if (properties.isHTTPSConfigured()) {
-            final HostHeaderHandler hostHeaderHandler = new HostHeaderHandler(properties);
-            standardHandler.addHandler(hostHeaderHandler);
-        }
 
         return standardHandler;
     }

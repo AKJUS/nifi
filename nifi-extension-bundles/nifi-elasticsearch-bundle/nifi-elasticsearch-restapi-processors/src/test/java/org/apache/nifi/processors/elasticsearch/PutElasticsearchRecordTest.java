@@ -209,12 +209,12 @@ public class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
         assertTrue(runner.getProcessContext().getProperties().keySet().stream().noneMatch(pd -> "put-es-record-not_found-is-error".equals(pd.getName())));
 
         assertTrue(runner.getProcessContext().getProperties().containsKey(PutElasticsearchRecord.RESULT_RECORD_WRITER));
-        final RecordSetWriterFactory writer = runner.getControllerService(
+        final RecordSetWriterFactory migratedWriter = runner.getControllerService(
                 runner.getProcessContext().getProperty(PutElasticsearchRecord.RESULT_RECORD_WRITER.getName()).getValue(),
                 RecordSetWriterFactory.class
         );
-        assertNotNull(writer);
-        assertTrue(runner.isControllerServiceEnabled(writer));
+        assertNotNull(migratedWriter);
+        assertTrue(runner.isControllerServiceEnabled(migratedWriter));
 
         assertEquals(1, result.getPropertiesRenamed().size());
         assertEquals(AbstractPutElasticsearch.NOT_FOUND_IS_SUCCESSFUL.getName(), result.getPropertiesRenamed().get("put-es-record-not_found-is-error"));
@@ -264,7 +264,8 @@ public class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
         runner.setProperty("another", "${blank}");
         runner.setEnvironmentVariableValue("slices", "auto");
         runner.setEnvironmentVariableValue("version", "/version");
-        testWithRequestParametersAndBulkHeaders(null);
+        runner.setEnvironmentVariableValue("accept", "application/json");
+        testWithRequestParametersAndBulkHeadersAndRequestHeaders(null);
     }
 
     @Test
@@ -274,7 +275,8 @@ public class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
         attributes.put("version", "/version");
         attributes.put("slices", "auto");
         attributes.put("blank", " ");
-        testWithRequestParametersAndBulkHeaders(attributes);
+        attributes.put("accept", "application/json");
+        testWithRequestParametersAndBulkHeadersAndRequestHeaders(attributes);
     }
 
     @Test
@@ -288,6 +290,7 @@ public class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
         runner.addControllerService("mockReader", mockReader);
         runner.setProperty(PutElasticsearchRecord.RECORD_READER, "mockReader");
         runner.enableControllerService(mockReader);
+        runner.setAllowRecursiveReads(true);
 
         basicTest(0, 0, 1);
     }
@@ -299,8 +302,8 @@ public class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
     }
 
     @Test
-    void testRetriable() {
-        clientService.setThrowRetriableError(true);
+    void testRetryable() {
+        clientService.setThrowRetryableError(true);
         basicTest(0, 1, 0);
     }
 
@@ -724,6 +727,8 @@ public class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
 
     @Test
     void testFailedRecordsOutput() throws Exception {
+        runner.setProperty(PutElasticsearchRecord.ID_RECORD_PATH, "/id");
+        runner.setProperty(PutElasticsearchRecord.RETAIN_ID_FIELD, "true");
         runner.setProperty(PutElasticsearchRecord.NOT_FOUND_IS_SUCCESSFUL, "true");
         runner.setProperty(PutElasticsearchRecord.LOG_ERROR_RESPONSES, "true");
         final int errorCount = 3;
@@ -732,7 +737,34 @@ public class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
 
         runner.assertTransferCount(AbstractPutElasticsearch.REL_ORIGINAL, 1);
         runner.assertTransferCount(AbstractPutElasticsearch.REL_ERRORS, 1);
+        // id should remain in errors output
+        assertTrue(runner.getFlowFilesForRelationship(AbstractPutElasticsearch.REL_ERRORS).getFirst().getContent().contains("\"id\":\"5\""));
         runner.assertTransferCount(AbstractPutElasticsearch.REL_SUCCESSFUL, 1);
+        // id should remain in successful output
+        assertTrue(runner.getFlowFilesForRelationship(AbstractPutElasticsearch.REL_SUCCESSFUL).getFirst().getContent().contains("\"id\":\"1\""));
+        runner.assertTransferCount(AbstractPutElasticsearch.REL_ERROR_RESPONSES, 0);
+        runner.getFlowFilesForRelationship(AbstractPutElasticsearch.REL_ERRORS).getFirst().assertAttributeEquals(PutElasticsearchRecord.ATTR_RECORD_COUNT, String.valueOf(errorCount));
+        runner.getFlowFilesForRelationship(AbstractPutElasticsearch.REL_SUCCESSFUL).getFirst().assertAttributeEquals(PutElasticsearchRecord.ATTR_RECORD_COUNT,
+                String.valueOf(successCount));
+    }
+
+    @Test
+    void testFailedRecordsOutputRemoveIdField() throws Exception {
+        runner.setProperty(PutElasticsearchRecord.ID_RECORD_PATH, "/id");
+        runner.setProperty(PutElasticsearchRecord.RETAIN_ID_FIELD, "false");
+        runner.setProperty(PutElasticsearchRecord.NOT_FOUND_IS_SUCCESSFUL, "true");
+        runner.setProperty(PutElasticsearchRecord.LOG_ERROR_RESPONSES, "true");
+        final int errorCount = 3;
+        final int successCount = 4;
+        testErrorRelationship(errorCount, 1, successCount);
+
+        runner.assertTransferCount(AbstractPutElasticsearch.REL_ORIGINAL, 1);
+        runner.assertTransferCount(AbstractPutElasticsearch.REL_ERRORS, 1);
+        // id should remain in errors output
+        assertTrue(runner.getFlowFilesForRelationship(AbstractPutElasticsearch.REL_ERRORS).getFirst().getContent().contains("\"id\":\"5\""));
+        runner.assertTransferCount(AbstractPutElasticsearch.REL_SUCCESSFUL, 1);
+        // id should be removed from successful output
+        assertFalse(runner.getFlowFilesForRelationship(AbstractPutElasticsearch.REL_SUCCESSFUL).getFirst().getContent().contains("\"id\":\"1\""));
         runner.assertTransferCount(AbstractPutElasticsearch.REL_ERROR_RESPONSES, 0);
         runner.getFlowFilesForRelationship(AbstractPutElasticsearch.REL_ERRORS).getFirst().assertAttributeEquals(PutElasticsearchRecord.ATTR_RECORD_COUNT, String.valueOf(errorCount));
         runner.getFlowFilesForRelationship(AbstractPutElasticsearch.REL_SUCCESSFUL).getFirst().assertAttributeEquals(PutElasticsearchRecord.ATTR_RECORD_COUNT,
@@ -889,12 +921,13 @@ public class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
         runner.assertTransferCount(AbstractPutElasticsearch.REL_ERROR_RESPONSES, 0);
     }
 
-    private void testWithRequestParametersAndBulkHeaders(final Map<String, String> attributes) {
+    private void testWithRequestParametersAndBulkHeadersAndRequestHeaders(final Map<String, String> attributes) {
         runner.setProperty("refresh", "true");
         runner.setProperty("slices", "${slices}");
         runner.setProperty(AbstractPutElasticsearch.BULK_HEADER_PREFIX + "routing", "/routing");
         runner.setProperty(AbstractPutElasticsearch.BULK_HEADER_PREFIX + "version", "${version}");
         runner.setProperty(AbstractPutElasticsearch.BULK_HEADER_PREFIX + "empty", "${empty}");
+        runner.setProperty(ElasticsearchRestProcessor.DYNAMIC_PROPERTY_PREFIX_REQUEST_HEADER + "Accept", "${accept}");
         runner.setEnvironmentVariableValue("blank", " ");
         runner.assertValid();
 
@@ -902,6 +935,11 @@ public class PutElasticsearchRecordTest extends AbstractPutElasticsearchTest {
             assertEquals(2, params.size());
             assertEquals("true", params.get("refresh"));
             assertEquals("auto", params.get("slices"));
+        });
+
+        clientService.setEvalHeadersConsumer((final Map<String, String> headers) -> {
+            assertEquals(1, headers.size());
+            assertEquals("application/json", headers.get("Accept"));
         });
 
         final Consumer<List<IndexOperationRequest>> consumer = (final List<IndexOperationRequest> items) -> {

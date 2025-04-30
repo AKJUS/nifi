@@ -620,15 +620,10 @@ public final class StandardProcessGroup implements ProcessGroup {
         }
 
         final ScheduledState currentState = statelessGroupNode.getCurrentState();
-        switch (currentState) {
-            case RUNNING:
-            case RUN_ONCE:
-            case STARTING:
-            case STOPPING:
-                return StatelessGroupScheduledState.RUNNING;
-            default:
-                return StatelessGroupScheduledState.STOPPED;
-        }
+        return switch (currentState) {
+            case RUNNING, RUN_ONCE, STARTING, STOPPING -> StatelessGroupScheduledState.RUNNING;
+            default -> StatelessGroupScheduledState.STOPPED;
+        };
     }
 
     @Override
@@ -638,13 +633,10 @@ public final class StandardProcessGroup implements ProcessGroup {
         }
 
         final ScheduledState currentState = statelessGroupNode.getDesiredState();
-        switch (currentState) {
-            case RUNNING:
-            case STARTING:
-                return StatelessGroupScheduledState.RUNNING;
-            default:
-                return StatelessGroupScheduledState.STOPPED;
-        }
+        return switch (currentState) {
+            case RUNNING, STARTING -> StatelessGroupScheduledState.RUNNING;
+            default -> StatelessGroupScheduledState.STOPPED;
+        };
     }
 
     @Override
@@ -1281,7 +1273,7 @@ public final class StandardProcessGroup implements ProcessGroup {
                 try {
                     LogRepositoryFactory.removeRepository(processor.getIdentifier());
                     extensionManager.removeInstanceClassLoader(id);
-                } catch (Throwable t) {
+                } catch (Throwable ignored) {
                 }
             }
             writeLock.unlock();
@@ -2632,7 +2624,7 @@ public final class StandardProcessGroup implements ProcessGroup {
             if (removed) {
                 try {
                     extensionManager.removeInstanceClassLoader(service.getIdentifier());
-                } catch (Throwable t) {
+                } catch (Throwable ignored) {
                 }
             }
             writeLock.unlock();

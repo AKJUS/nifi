@@ -16,11 +16,14 @@
  */
 package org.apache.nifi.web;
 
+import jakarta.ws.rs.WebApplicationException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.action.Action;
 import org.apache.nifi.action.Component;
 import org.apache.nifi.action.FlowChangeAction;
 import org.apache.nifi.action.Operation;
+import org.apache.nifi.action.RequestDetails;
+import org.apache.nifi.action.StandardRequestDetails;
 import org.apache.nifi.action.component.details.FlowChangeExtensionDetails;
 import org.apache.nifi.action.details.FlowChangeConfigureDetails;
 import org.apache.nifi.admin.service.AuditService;
@@ -58,6 +61,7 @@ import org.apache.nifi.web.api.entity.FlowRegistryClientEntity;
 import org.apache.nifi.web.api.entity.ParameterProviderEntity;
 import org.apache.nifi.web.api.entity.ProcessorEntity;
 import org.apache.nifi.web.api.entity.ReportingTaskEntity;
+import org.apache.nifi.web.security.NiFiWebAuthenticationDetails;
 import org.apache.nifi.web.util.ClientResponseUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +70,9 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -124,53 +131,53 @@ public class StandardNiFiWebConfigurationContext implements NiFiWebConfiguration
             throw new IllegalArgumentException("The UI extension type must be specified.");
         }
 
-        Component componentType = null;
-        switch (requestContext.getExtensionType()) {
-            case ProcessorConfiguration:
+        Component componentType = switch (requestContext.getExtensionType()) {
+            case ProcessorConfiguration -> {
                 // authorize access
                 serviceFacade.authorizeAccess(lookup -> {
                     final Authorizable authorizable = lookup.getProcessor(requestContext.getId()).getAuthorizable();
                     authorizable.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
                 });
 
-                componentType = Component.Processor;
-                break;
-            case ControllerServiceConfiguration:
+                yield Component.Processor;
+            }
+            case ControllerServiceConfiguration -> {
                 // authorize access
                 serviceFacade.authorizeAccess(lookup -> {
                     final Authorizable authorizable = lookup.getControllerService(requestContext.getId()).getAuthorizable();
                     authorizable.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
                 });
 
-                componentType = Component.ControllerService;
-                break;
-            case ReportingTaskConfiguration:
+                yield Component.ControllerService;
+            }
+            case ReportingTaskConfiguration -> {
                 // authorize access
                 serviceFacade.authorizeAccess(lookup -> {
                     final Authorizable authorizable = lookup.getReportingTask(requestContext.getId()).getAuthorizable();
                     authorizable.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
                 });
 
-                componentType = Component.ReportingTask;
-                break;
-            case ParameterProviderConfiguration:
+                yield Component.ReportingTask;
+            }
+            case ParameterProviderConfiguration -> {
                 // authorize access
                 serviceFacade.authorizeAccess(lookup -> {
                     final Authorizable authorizable = lookup.getParameterProvider(requestContext.getId()).getAuthorizable();
                     authorizable.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
                 });
 
-                componentType = Component.ParameterProvider;
-                break;
-            case FlowRegistryClientConfiguration:
+                yield Component.ParameterProvider;
+            }
+            case FlowRegistryClientConfiguration -> {
                 // authorize access
                 serviceFacade.authorizeAccess(lookup -> {
                     final Authorizable authorizable = lookup.getFlowRegistryClient(requestContext.getId()).getAuthorizable();
                     authorizable.authorize(authorizer, RequestAction.WRITE, NiFiUserUtils.getNiFiUser());
                 });
-                componentType = Component.FlowRegistryClient;
-                break;
-        }
+                yield Component.FlowRegistryClient;
+            }
+            default -> null;
+        };
 
         if (componentType == null) {
             throw new IllegalArgumentException("UI extension type must support Processor, ControllerService, or ReportingTask configuration.");
@@ -198,6 +205,7 @@ public class StandardNiFiWebConfigurationContext implements NiFiWebConfiguration
             action.setUserIdentity(getCurrentUserIdentity());
             action.setComponentDetails(extensionDetails);
             action.setActionDetails(configureDetails);
+            action.setRequestDetails(createRequestDetails());
             actions.add(action);
         }
 
@@ -232,23 +240,14 @@ public class StandardNiFiWebConfigurationContext implements NiFiWebConfiguration
         }
 
         // get the component facade for interacting directly with that type of object
-        ComponentFacade componentFacade = null;
-        switch (requestContext.getExtensionType()) {
-            case ProcessorConfiguration:
-                componentFacade = new ProcessorFacade();
-                break;
-            case ControllerServiceConfiguration:
-                componentFacade = new ControllerServiceFacade();
-                break;
-            case ReportingTaskConfiguration:
-                componentFacade = new ReportingTaskFacade();
-                break;
-            case ParameterProviderConfiguration:
-                componentFacade = new ParameterProviderFacade();
-                break;
-            case FlowRegistryClientConfiguration:
-                componentFacade = new FlowRegistryClientFacade();
-        }
+        ComponentFacade componentFacade = switch (requestContext.getExtensionType()) {
+            case ProcessorConfiguration -> new ProcessorFacade();
+            case ControllerServiceConfiguration -> new ControllerServiceFacade();
+            case ReportingTaskConfiguration -> new ReportingTaskFacade();
+            case ParameterProviderConfiguration -> new ParameterProviderFacade();
+            case FlowRegistryClientConfiguration -> new FlowRegistryClientFacade();
+            default -> null;
+        };
 
         if (componentFacade == null) {
             throw new IllegalArgumentException("UI extension type must support Processor, ControllerService, or ReportingTask configuration.");
@@ -273,18 +272,12 @@ public class StandardNiFiWebConfigurationContext implements NiFiWebConfiguration
         }
 
         // get the component facade for interacting directly with that type of object
-        ComponentFacade componentFacade = null;
-        switch (requestContext.getExtensionType()) {
-            case ProcessorConfiguration:
-                componentFacade = new ProcessorFacade();
-                break;
-            case ControllerServiceConfiguration:
-                componentFacade = new ControllerServiceFacade();
-                break;
-            case ReportingTaskConfiguration:
-                componentFacade = new ReportingTaskFacade();
-                break;
-        }
+        ComponentFacade componentFacade = switch (requestContext.getExtensionType()) {
+            case ProcessorConfiguration -> new ProcessorFacade();
+            case ControllerServiceConfiguration -> new ControllerServiceFacade();
+            case ReportingTaskConfiguration -> new ReportingTaskFacade();
+            default -> null;
+        };
 
         if (componentFacade == null) {
             throw new IllegalArgumentException("UI extension type must support Processor, ControllerService, or ReportingTask configuration.");
@@ -319,6 +312,28 @@ public class StandardNiFiWebConfigurationContext implements NiFiWebConfiguration
 
             return requestReplicator.forwardToCoordinator(coordinatorNode, method, uri, entity, headers).awaitMergedResponse();
         }
+    }
+
+    private RequestDetails createRequestDetails() {
+        final RequestDetails requestDetails;
+
+        final SecurityContext securityContext = SecurityContextHolder.getContext();
+        final Authentication authentication = securityContext.getAuthentication();
+        if (authentication == null) {
+            throw new WebApplicationException(new IllegalStateException("Security Context missing Authentication for current user"));
+        } else {
+            final Object details = authentication.getDetails();
+            if (details instanceof NiFiWebAuthenticationDetails authenticationDetails) {
+                final String remoteAddress = authenticationDetails.getRemoteAddress();
+                final String forwardedFor = authenticationDetails.getForwardedFor();
+                final String userAgent = authenticationDetails.getUserAgent();
+                requestDetails = new StandardRequestDetails(remoteAddress, forwardedFor, userAgent);
+            } else {
+                throw new WebApplicationException(new IllegalStateException("Standard Authentication Details not found [%s]".formatted(details.getClass())));
+            }
+        }
+
+        return requestDetails;
     }
 
     /**

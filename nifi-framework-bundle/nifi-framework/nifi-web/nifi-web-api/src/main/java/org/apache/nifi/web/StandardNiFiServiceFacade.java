@@ -24,6 +24,8 @@ import org.apache.nifi.action.Action;
 import org.apache.nifi.action.Component;
 import org.apache.nifi.action.FlowChangeAction;
 import org.apache.nifi.action.Operation;
+import org.apache.nifi.action.RequestDetails;
+import org.apache.nifi.action.StandardRequestDetails;
 import org.apache.nifi.action.details.FlowChangePurgeDetails;
 import org.apache.nifi.admin.service.AuditService;
 import org.apache.nifi.asset.Asset;
@@ -410,12 +412,16 @@ import org.apache.nifi.web.revision.RevisionManager;
 import org.apache.nifi.web.revision.RevisionUpdate;
 import org.apache.nifi.web.revision.StandardRevisionClaim;
 import org.apache.nifi.web.revision.StandardRevisionUpdate;
+import org.apache.nifi.web.security.NiFiWebAuthenticationDetails;
 import org.apache.nifi.web.util.PredictionBasedParallelProcessingService;
 import org.apache.nifi.web.util.SnippetUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.OAuth2Token;
 import org.springframework.stereotype.Service;
 
@@ -2578,7 +2584,7 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
                 final RevisionDTO componentReferenceRevision = dtoFactory.createRevisionDTO(revisionManager.getRevision(componentReference.getId()));
                 componentReferenceEntity = entityFactory.createComponentReferenceEntity(componentReference, componentReferenceRevision, componentReferencePermissions);
             }
-        } catch (final ResourceNotFoundException e) {
+        } catch (final ResourceNotFoundException ignored) {
             // component not found for the specified resource
         }
 
@@ -3563,21 +3569,13 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
 
     @Override
     public void deleteActions(final Date endDate) {
-        // get the user from the request
-        final NiFiUser user = NiFiUserUtils.getNiFiUser();
-        if (user == null) {
-            throw new WebApplicationException(new Throwable("Unable to access details for current user."));
-        }
-
         // create the purge details
         final FlowChangePurgeDetails details = new FlowChangePurgeDetails();
         details.setEndDate(endDate);
 
         // create a purge action to record that records are being removed
-        final FlowChangeAction purgeAction = new FlowChangeAction();
-        purgeAction.setUserIdentity(user.getIdentity());
+        final FlowChangeAction purgeAction = createFlowChangeAction();
         purgeAction.setOperation(Operation.Purge);
-        purgeAction.setTimestamp(new Date());
         purgeAction.setSourceId("Flow Controller");
         purgeAction.setSourceName("History");
         purgeAction.setSourceType(Component.Controller);
@@ -4005,40 +4003,20 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
 
         final Authorizable authorizable;
         try {
-            switch (type) {
-                case PROCESSOR:
-                    authorizable = authorizableLookup.getProcessor(sourceId).getAuthorizable();
-                    break;
-                case REPORTING_TASK:
-                    authorizable = authorizableLookup.getReportingTask(sourceId).getAuthorizable();
-                    break;
-                case FLOW_ANALYSIS_RULE:
-                    authorizable = authorizableLookup.getFlowAnalysisRule(sourceId).getAuthorizable();
-                    break;
-                case PARAMETER_PROVIDER:
-                    authorizable = authorizableLookup.getParameterProvider(sourceId).getAuthorizable();
-                    break;
-                case CONTROLLER_SERVICE:
-                    authorizable = authorizableLookup.getControllerService(sourceId).getAuthorizable();
-                    break;
-                case FLOW_CONTROLLER:
-                    authorizable = controllerFacade;
-                    break;
-                case INPUT_PORT:
-                    authorizable = authorizableLookup.getInputPort(sourceId);
-                    break;
-                case OUTPUT_PORT:
-                    authorizable = authorizableLookup.getOutputPort(sourceId);
-                    break;
-                case REMOTE_PROCESS_GROUP:
-                    authorizable = authorizableLookup.getRemoteProcessGroup(sourceId);
-                    break;
-                case PROCESS_GROUP:
-                    authorizable = authorizableLookup.getProcessGroup(sourceId).getAuthorizable();
-                    break;
-                default:
-                    throw new WebApplicationException(Response.serverError().entity("An unexpected type of component is the source of this bulletin.").build());
-            }
+            authorizable = switch (type) {
+                case PROCESSOR -> authorizableLookup.getProcessor(sourceId).getAuthorizable();
+                case REPORTING_TASK -> authorizableLookup.getReportingTask(sourceId).getAuthorizable();
+                case FLOW_ANALYSIS_RULE -> authorizableLookup.getFlowAnalysisRule(sourceId).getAuthorizable();
+                case PARAMETER_PROVIDER -> authorizableLookup.getParameterProvider(sourceId).getAuthorizable();
+                case CONTROLLER_SERVICE -> authorizableLookup.getControllerService(sourceId).getAuthorizable();
+                case FLOW_CONTROLLER -> controllerFacade;
+                case INPUT_PORT -> authorizableLookup.getInputPort(sourceId);
+                case OUTPUT_PORT -> authorizableLookup.getOutputPort(sourceId);
+                case REMOTE_PROCESS_GROUP -> authorizableLookup.getRemoteProcessGroup(sourceId);
+                case PROCESS_GROUP -> authorizableLookup.getProcessGroup(sourceId).getAuthorizable();
+                default ->
+                        throw new WebApplicationException(Response.serverError().entity("An unexpected type of component is the source of this bulletin.").build());
+            };
         } catch (final ResourceNotFoundException e) {
             // if the underlying component is gone, disallow
             return false;
@@ -4330,7 +4308,7 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
                         if (serviceNodes.add(serviceNode)) {
                             findReferencedControllerServices(serviceNode, serviceNodes, user);
                         }
-                    } catch (ResourceNotFoundException e) {
+                    } catch (ResourceNotFoundException ignored) {
                         // ignore if the resource is not found, if the referenced service was previously deleted, it should not stop this action
                     }
                 }
@@ -4423,7 +4401,7 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
                 final BulletinEntity controllerServiceBulletin = entityFactory.createBulletinEntity(dtoFactory.createBulletinDto(bulletin), controllerServiceAuthorized);
                 controllerServiceBulletinEntities.add(controllerServiceBulletin);
                 controllerBulletinEntities.add(controllerServiceBulletin);
-            } catch (final ResourceNotFoundException e) {
+            } catch (final ResourceNotFoundException ignored) {
                 // controller service missing.. skip
             }
         }
@@ -4441,7 +4419,7 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
                 final BulletinEntity reportingTaskBulletin = entityFactory.createBulletinEntity(dtoFactory.createBulletinDto(bulletin), reportingTaskAuthorizableAuthorized);
                 reportingTaskBulletinEntities.add(reportingTaskBulletin);
                 controllerBulletinEntities.add(reportingTaskBulletin);
-            } catch (final ResourceNotFoundException e) {
+            } catch (final ResourceNotFoundException ignored) {
                 // reporting task missing.. skip
             }
         }
@@ -4459,7 +4437,7 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
                 final BulletinEntity flowAnalysisRuleBulletin = entityFactory.createBulletinEntity(dtoFactory.createBulletinDto(bulletin), flowAnalysisRuleAuthorizableAuthorized);
                 flowAnalysisRuleBulletinEntities.add(flowAnalysisRuleBulletin);
                 controllerBulletinEntities.add(flowAnalysisRuleBulletin);
-            } catch (final ResourceNotFoundException e) {
+            } catch (final ResourceNotFoundException ignored) {
                 // flow analysis rule missing.. skip
             }
         }
@@ -4477,7 +4455,7 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
                 final BulletinEntity parameterProviderBulletin = entityFactory.createBulletinEntity(dtoFactory.createBulletinDto(bulletin), parameterProviderAuthorizableAuthorized);
                 parameterProviderBulletinEntities.add(parameterProviderBulletin);
                 controllerBulletinEntities.add(parameterProviderBulletin);
-            } catch (final ResourceNotFoundException e) {
+            } catch (final ResourceNotFoundException ignored) {
                 // parameter provider missing.. skip
             }
         }
@@ -4495,7 +4473,7 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
                 final BulletinEntity flowRegistryClient = entityFactory.createBulletinEntity(dtoFactory.createBulletinDto(bulletin), flowRegistryClientkAuthorizableAuthorized);
                 flowRegistryClientBulletinEntities.add(flowRegistryClient);
                 controllerBulletinEntities.add(flowRegistryClient);
-            } catch (final ResourceNotFoundException e) {
+            } catch (final ResourceNotFoundException ignored) {
                 // flow registry client missing.. skip
             }
         }
@@ -6190,7 +6168,10 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
                     copiedInstance.getProperties().keySet().stream()
                             .filter(PropertyDescriptor::isSensitive)
                             .forEach(pd -> {
-                                p.getProperties().put(pd.getName(), copiedInstance.getRawPropertyValue(pd));
+                                final VersionedPropertyDescriptor vpd = p.getPropertyDescriptors().get(pd.getName());
+                                if (vpd != null && vpd.isSensitive()) {
+                                    p.getProperties().put(pd.getName(), copiedInstance.getRawPropertyValue(pd));
+                                }
                             });
                 }
             }
@@ -6213,7 +6194,10 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
                     copiedInstance.getProperties().keySet().stream()
                             .filter(PropertyDescriptor::isSensitive)
                             .forEach(pd -> {
-                                s.getProperties().put(pd.getName(), copiedInstance.getRawPropertyValue(pd));
+                                final VersionedPropertyDescriptor vpd = s.getPropertyDescriptors().get(pd.getName());
+                                if (vpd != null && vpd.isSensitive()) {
+                                    s.getProperties().put(pd.getName(), copiedInstance.getRawPropertyValue(pd));
+                                }
                             });
                 }
             }
@@ -7136,6 +7120,31 @@ public class StandardNiFiServiceFacade implements NiFiServiceFacade {
         return NiFiUserUtils.getAuthenticationCredentials()
                 .map(credentials -> credentials instanceof OAuth2Token)
                 .orElse(false);
+    }
+
+    private FlowChangeAction createFlowChangeAction() {
+        final FlowChangeAction flowChangeAction = new FlowChangeAction();
+        flowChangeAction.setTimestamp(new Date());
+
+        final SecurityContext securityContext = SecurityContextHolder.getContext();
+        final Authentication authentication = securityContext.getAuthentication();
+        if (authentication == null) {
+            throw new WebApplicationException(new IllegalStateException("Security Context missing Authentication for current user"));
+        } else {
+            final String userIdentity = authentication.getName();
+            flowChangeAction.setUserIdentity(userIdentity);
+
+            final Object details = authentication.getDetails();
+            if (details instanceof NiFiWebAuthenticationDetails authenticationDetails) {
+                final String remoteAddress = authenticationDetails.getRemoteAddress();
+                final String forwardedFor = authenticationDetails.getForwardedFor();
+                final String userAgent = authenticationDetails.getUserAgent();
+                final RequestDetails requestDetails = new StandardRequestDetails(remoteAddress, forwardedFor, userAgent);
+                flowChangeAction.setRequestDetails(requestDetails);
+            }
+        }
+
+        return flowChangeAction;
     }
 
     @Override

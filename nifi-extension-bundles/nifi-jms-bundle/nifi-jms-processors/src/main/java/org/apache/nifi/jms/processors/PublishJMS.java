@@ -161,12 +161,12 @@ public class PublishJMS extends AbstractJMSProcessor<JMSPublisher> {
             .description("All FlowFiles that cannot be sent to JMS destination are routed to this relationship")
             .build();
 
-    private static final List<PropertyDescriptor> COMMON_PROPERTIES = Stream.concat(
+    private static final List<PropertyDescriptor> COMMON_PROPERTY_DESCRIPTORS = Stream.concat(
             JNDI_JMS_CF_PROPERTIES.stream(),
             JMS_CF_PROPERTIES.stream()
     ).toList();
 
-    private static final List<PropertyDescriptor> PROPERTIES = Stream.concat(
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = Stream.concat(
             Stream.of(
                     CF_SERVICE,
                     DESTINATION,
@@ -181,8 +181,9 @@ public class PublishJMS extends AbstractJMSProcessor<JMSPublisher> {
                     MAX_BATCH_SIZE,
                     RECORD_READER,
                     RECORD_WRITER),
-            COMMON_PROPERTIES.stream()
+            COMMON_PROPERTY_DESCRIPTORS.stream()
     ).toList();
+
     private final static Set<Relationship> RELATIONSHIPS = Set.of(
             REL_SUCCESS,
             REL_FAILURE
@@ -201,7 +202,7 @@ public class PublishJMS extends AbstractJMSProcessor<JMSPublisher> {
         attributeHeaderPattern = Pattern.compile(attributeHeaderRegex);
 
         readerFactory = context.getProperty(RECORD_READER).asControllerService(RecordReaderFactory.class);
-        writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
+        writerFactory = readerFactory == null ? null : context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
     }
 
     /**
@@ -294,7 +295,7 @@ public class PublishJMS extends AbstractJMSProcessor<JMSPublisher> {
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return PROPERTIES;
+        return PROPERTY_DESCRIPTORS;
     }
 
     /**

@@ -33,6 +33,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.Validator;
 import org.apache.nifi.elasticsearch.ElasticSearchClientService;
 import org.apache.nifi.elasticsearch.ElasticsearchException;
+import org.apache.nifi.elasticsearch.ElasticsearchRequestOptions;
 import org.apache.nifi.elasticsearch.IndexOperationRequest;
 import org.apache.nifi.elasticsearch.IndexOperationResponse;
 import org.apache.nifi.expression.ExpressionLanguageScope;
@@ -108,6 +109,13 @@ import java.util.concurrent.atomic.AtomicLong;
                         "If the Record Path expression results in a null or blank value, the Bulk header will be omitted for the document operation. " +
                         "These parameters will override any matching parameters in the _bulk request body."),
         @DynamicProperty(
+                name = "The name of the HTTP request header",
+                value = "A Record Path expression to retrieve the HTTP request header value",
+                expressionLanguageScope = ExpressionLanguageScope.FLOWFILE_ATTRIBUTES,
+                description = "Prefix: " + ElasticsearchRestProcessor.DYNAMIC_PROPERTY_PREFIX_REQUEST_HEADER +
+                        " - adds the specified property name/value as a HTTP request header in the Elasticsearch request. " +
+                        "If the Record Path expression results in a null or blank value, the HTTP request header will be omitted."),
+        @DynamicProperty(
                 name = "The name of a URL query parameter to add",
                 value = "The value of the URL query parameter",
                 expressionLanguageScope = ExpressionLanguageScope.FLOWFILE_ATTRIBUTES,
@@ -118,7 +126,7 @@ import java.util.concurrent.atomic.AtomicLong;
         resource = SystemResource.MEMORY,
         description = "The Batch of Records will be stored in memory until the bulk operation is performed.")
 public class PutElasticsearchRecord extends AbstractPutElasticsearch {
-    static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
         .name("put-es-record-reader")
         .displayName("Record Reader")
         .description("The record reader to use for reading incoming records from flowfiles.")
@@ -126,7 +134,7 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
         .required(true)
         .build();
 
-    static final PropertyDescriptor BATCH_SIZE = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor BATCH_SIZE = new PropertyDescriptor.Builder()
         .fromPropertyDescriptor(AbstractPutElasticsearch.BATCH_SIZE)
         .description("The number of records to send over in a single batch.")
         .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -151,7 +159,7 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
         .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
         .build();
 
-    static final PropertyDescriptor ID_RECORD_PATH = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor ID_RECORD_PATH = new PropertyDescriptor.Builder()
         .name("put-es-record-id-path")
         .displayName("ID Record Path")
         .description("A record path expression to retrieve the ID field for use with Elasticsearch. If left blank " +
@@ -161,12 +169,11 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
         .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
         .build();
 
-    static final PropertyDescriptor RETAIN_ID_FIELD = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor RETAIN_ID_FIELD = new PropertyDescriptor.Builder()
         .name("put-es-record-retain-id-field")
         .displayName("Retain ID (Record Path)")
         .description("Whether to retain the existing field used as the ID Record Path.")
         .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
-        .allowableValues("true", "false")
         .defaultValue("false")
         .required(false)
         .dependsOn(ID_RECORD_PATH)
@@ -202,7 +209,7 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
         .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
         .build();
 
-    static final PropertyDescriptor SCRIPT_RECORD_PATH = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor SCRIPT_RECORD_PATH = new PropertyDescriptor.Builder()
             .name("put-es-record-script-path")
             .displayName("Script Record Path")
             .description("A RecordPath pointing to a field in the record(s) that contains the script for the document update/upsert. " +
@@ -212,7 +219,7 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
 
-    static final PropertyDescriptor SCRIPTED_UPSERT_RECORD_PATH = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor SCRIPTED_UPSERT_RECORD_PATH = new PropertyDescriptor.Builder()
             .name("put-es-record-scripted-upsert-path")
             .displayName("Scripted Upsert Record Path")
             .description("A RecordPath pointing to a field in the record(s) that contains the scripted_upsert boolean flag. " +
@@ -242,14 +249,13 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
         .displayName("Retain @timestamp (Record Path)")
         .description("Whether to retain the existing field used as the @timestamp Record Path.")
         .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
-        .allowableValues("true", "false")
         .defaultValue("false")
         .required(false)
         .dependsOn(AT_TIMESTAMP_RECORD_PATH)
         .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
         .build();
 
-    static final PropertyDescriptor RESULT_RECORD_WRITER = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor RESULT_RECORD_WRITER = new PropertyDescriptor.Builder()
         .name("put-es-record-error-writer")
         .displayName("Result Record Writer")
         .description("The response from Elasticsearch will be examined for failed records " +
@@ -268,7 +274,6 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
                     "and the error related to the first record within the FlowFile added to the FlowFile as \"elasticsearch.bulk.error\". " +
                     "If \"" + NOT_FOUND_IS_SUCCESSFUL.getDisplayName() + "\" is \"false\" then records associated with \"not_found\" " +
                     "Elasticsearch document responses will also be send to the \"" + REL_ERRORS.getName() + "\" relationship.")
-            .allowableValues("true", "false")
             .defaultValue("false")
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
             .required(false)
@@ -402,7 +407,7 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
 
         final List<FlowFile> resultRecords = new ArrayList<>();
 
-        final AtomicLong erroredRecords = new AtomicLong(0);
+        final AtomicLong errorRecords = new AtomicLong(0);
         final AtomicLong successfulRecords = new AtomicLong(0);
         final StopWatch stopWatch = new StopWatch(true);
         final Set<String> indices = new HashSet<>();
@@ -421,13 +426,13 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
                 originals.add(record);
 
                 if (operationList.size() == indexOperationParameters.getBatchSize() || !recordSet.isAnotherRecord()) {
-                    operate(operationList, originals, reader, session, input, indexOperationParameters.getRequestParameters(), resultRecords, erroredRecords, successfulRecords);
+                    operate(operationList, originals, reader, session, input, indexOperationParameters, resultRecords, errorRecords, successfulRecords, batches);
                     batches++;
                 }
             }
 
             if (!operationList.isEmpty()) {
-                operate(operationList, originals, reader, session, input, indexOperationParameters.getRequestParameters(), resultRecords, erroredRecords, successfulRecords);
+                operate(operationList, originals, reader, session, input, indexOperationParameters, resultRecords, errorRecords, successfulRecords, batches);
                 batches++;
             }
         } catch (final ElasticsearchException ese) {
@@ -455,12 +460,12 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
         session.getProvenanceReporter().send(
                 input,
                 clientService.get().getTransitUrl(String.join(",", indices), types.isEmpty() ? null : String.join(",", types)),
-                String.format(Locale.getDefault(), "%d Elasticsearch _bulk operation batch(es) [%d error(s), %d success(es)]", batches, erroredRecords.get(), successfulRecords.get()),
+                String.format(Locale.getDefault(), "%d Elasticsearch _bulk operation batch(es) [%d error(s), %d success(es)]", batches, errorRecords.get(), successfulRecords.get()),
                 stopWatch.getDuration(TimeUnit.MILLISECONDS)
         );
 
         input = session.putAllAttributes(input, new HashMap<>() {{
-            put("elasticsearch.put.error.count", String.valueOf(erroredRecords.get()));
+            put("elasticsearch.put.error.count", String.valueOf(errorRecords.get()));
             put("elasticsearch.put.success.count", String.valueOf(successfulRecords.get()));
         }});
 
@@ -501,12 +506,12 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
     }
 
     private void operate(final List<IndexOperationRequest> operationList, final List<Record> originals, final RecordReader reader,
-                         final ProcessSession session, final FlowFile input, final Map<String, String> requestParameters,
-                         final List<FlowFile> resultRecords, final AtomicLong erroredRecords, final AtomicLong successfulRecords)
+                         final ProcessSession session, final FlowFile input, final IndexOperationParameters indexOperationParameters,
+                         final List<FlowFile> resultRecords, final AtomicLong erroredRecords, final AtomicLong successfulRecords, final int batch)
             throws IOException, SchemaNotFoundException, MalformedRecordException {
 
         final BulkOperation bundle = new BulkOperation(operationList, originals, reader.getSchema());
-        final ResponseDetails responseDetails = indexDocuments(bundle, session, input, requestParameters);
+        final ResponseDetails responseDetails = indexDocuments(bundle, session, input, indexOperationParameters, batch);
 
         successfulRecords.getAndAdd(responseDetails.successCount());
         erroredRecords.getAndAdd(responseDetails.errorCount());
@@ -525,8 +530,9 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
     }
 
     private ResponseDetails indexDocuments(final BulkOperation bundle, final ProcessSession session, final FlowFile input,
-                                           final Map<String, String> requestParameters) throws IOException, SchemaNotFoundException {
-        final IndexOperationResponse response = clientService.get().bulk(bundle.getOperationList(), requestParameters);
+                                           final IndexOperationParameters indexOperationParameters, final int batch)
+            throws IOException, SchemaNotFoundException, MalformedRecordException {
+        final IndexOperationResponse response = clientService.get().bulk(bundle.getOperationList(), indexOperationParameters.getElasticsearchRequestOptions());
 
         final Map<Integer, Map<String, Object>> errors = findElasticsearchResponseErrors(response);
         if (!errors.isEmpty()) {
@@ -537,12 +543,23 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
         final int numSuccessful = response.getItems() == null ? 0 : response.getItems().size() - numErrors;
         final Map<String, Output> outputs = new HashMap<>();
 
-        try {
+        try (final InputStream inStream = session.read(input);
+             final RecordReader inputReader = readerFactory.createRecordReader(input, inStream, getLogger())) {
+
+            // if there are errors present, skip through the input FlowFile to the current batch of records
+            if (numErrors > 0) {
+                for (int r = 0; r < batch * indexOperationParameters.getBatchSize(); r++) {
+                    inputReader.nextRecord();
+                }
+            }
+
             for (int o = 0; o < bundle.getOriginalRecords().size(); o++) {
                 final String type;
                 final Relationship relationship;
                 final Map<String, Object> error;
-                if (errors.containsKey(o)) {
+                final Record outputRecord;
+                final RecordSchema recordSchema;
+                if (numErrors > 0 && errors.containsKey(o)) {
                     relationship = REL_ERRORS;
                     error = errors.get(o);
                     if (groupBulkErrors) {
@@ -554,19 +571,27 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
                     } else {
                         type = OUTPUT_TYPE_ERROR;
                     }
+                    outputRecord = inputReader.nextRecord();
+                    recordSchema = outputRecord.getSchema();
                 } else {
                     relationship = REL_SUCCESSFUL;
                     error = null;
                     type = OUTPUT_TYPE_SUCCESS;
+                    outputRecord = bundle.getOriginalRecords().get(o);
+                    recordSchema = bundle.getSchema();
+                    // skip the associated Input Record for this successful Record
+                    if (numErrors > 0) {
+                        inputReader.nextRecord();
+                    }
                 }
-                final Output output = getOutputByType(outputs, type, session, relationship, input, bundle.getSchema());
-                output.write(bundle.getOriginalRecords().get(o), error);
+                final Output output = getOutputByType(outputs, type, session, relationship, input, recordSchema);
+                output.write(outputRecord, error);
             }
 
             for (final Output output : outputs.values()) {
                 output.transfer(session);
             }
-        } catch (final IOException | SchemaNotFoundException ex) {
+        } catch (final IOException | SchemaNotFoundException | MalformedRecordException ex) {
             getLogger().error("Unable to write error/successful records", ex);
             outputs.values().forEach(o -> {
                 try {
@@ -832,7 +857,7 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
         private final RecordPath scriptedUpsertPath;
         private final RecordPath dynamicTypesPath;
 
-        private final Map<String, String> requestParameters;
+        private final ElasticsearchRequestOptions elasticsearchRequestOptions;
         private final Map<String, RecordPath> bulkHeaderRecordPaths;
 
         private final boolean retainId;
@@ -854,8 +879,8 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
             scriptedUpsertPath = compileRecordPathFromProperty(context, SCRIPTED_UPSERT_RECORD_PATH, input);
             dynamicTypesPath = compileRecordPathFromProperty(context, DYNAMIC_TEMPLATES_RECORD_PATH, input);
 
-            final Map<String, String> dynamicProperties = getDynamicProperties(context, input);
-            requestParameters = getRequestURLParameters(dynamicProperties);
+            final Map<String, String> dynamicProperties = getRequestParametersFromDynamicProperties(context, input);
+            elasticsearchRequestOptions = new ElasticsearchRequestOptions(getRequestURLParameters(dynamicProperties), getRequestHeadersFromDynamicProperties(context, input));
 
             final Map<String, String> bulkHeaderParameterPaths = getBulkHeaderParameters(dynamicProperties);
             bulkHeaderRecordPaths = new HashMap<>(bulkHeaderParameterPaths.size(), 1);
@@ -868,8 +893,8 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
                 }
             }
 
-            retainId = context.getProperty(RETAIN_ID_FIELD).evaluateAttributeExpressions(input).asBoolean();
-            retainTimestamp = context.getProperty(RETAIN_AT_TIMESTAMP_FIELD).evaluateAttributeExpressions(input).asBoolean();
+            retainId = idPath != null && context.getProperty(RETAIN_ID_FIELD).evaluateAttributeExpressions(input).asBoolean();
+            retainTimestamp = atTimestampPath != null && context.getProperty(RETAIN_AT_TIMESTAMP_FIELD).evaluateAttributeExpressions(input).asBoolean();
             batchSize = context.getProperty(BATCH_SIZE).evaluateAttributeExpressions(input).asInteger();
         }
 
@@ -926,8 +951,8 @@ public class PutElasticsearchRecord extends AbstractPutElasticsearch {
             return dynamicTypesPath;
         }
 
-        public Map<String, String> getRequestParameters() {
-            return requestParameters;
+        public ElasticsearchRequestOptions getElasticsearchRequestOptions() {
+            return elasticsearchRequestOptions;
         }
 
         public Map<String, RecordPath> getBulkHeaderRecordPaths() {

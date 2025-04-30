@@ -19,9 +19,12 @@ package org.apache.nifi.processors.groovyx;
 import groovy.json.JsonOutput;
 import groovy.json.JsonSlurper;
 import org.apache.commons.io.FileUtils;
+import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.dbcp.DBCPService;
+import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.record.MockRecordParser;
 import org.apache.nifi.serialization.record.MockRecordWriter;
@@ -40,7 +43,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
-
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -56,6 +58,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -543,6 +546,34 @@ public class ExecuteGroovyScriptTest {
         assertEquals("onUnscheduled invoked successfully\n", outContent.toString());
     }
 
+    @Test
+    public void test_attribute_passed_to_SQL() {
+        runner.setProperty(ExecuteGroovyScript.SCRIPT_FILE, TEST_RESOURCE_LOCATION + "test_attributes_passed_to_SQL.groovy");
+        runner.setProperty("database.name", "testDB");
+        runner.setProperty("SQL.mydb", "dbcp");
+        runner.assertValid();
+
+        runner.run();
+        assertEquals("testDB", ((DBCPServiceSimpleImpl) dbcp).getDatabaseName());
+    }
+
+    @Test
+    public void test_sensitive_dynamic_property() throws Exception {
+        new PropertyDescriptor.Builder()
+                .name("password")
+                .required(false)
+                .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+                .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+                .dynamic(true)
+                .sensitive(true)
+                .build();
+        runner.setProperty("password", "MyP@ssW0rd!");
+        runner.setProperty(ExecuteGroovyScript.SCRIPT_BODY,
+                "assert context.getProperties().find {k,v -> k.name == 'password'}.key.sensitive");
+        runner.assertValid();
+        runner.run();
+    }
+
 
     private HashMap<String, String> map(String key, String value) {
         HashMap<String, String> attrs = new HashMap<>();
@@ -551,6 +582,8 @@ public class ExecuteGroovyScriptTest {
     }
 
     private static class DBCPServiceSimpleImpl extends AbstractControllerService implements DBCPService {
+
+        private String dbName;
 
         @Override
         public String getIdentifier() {
@@ -565,6 +598,21 @@ public class ExecuteGroovyScriptTest {
             } catch (final Exception e) {
                 throw new ProcessException("getConnection failed: " + e);
             }
+        }
+
+        @Override
+        public Connection getConnection(Map<String, String> attributes) throws ProcessException {
+            dbName = attributes.get("database.name");
+            try {
+                Class.forName("org.apache.derby.jdbc.EmbeddedDriver");
+                return DriverManager.getConnection("jdbc:derby:" + DB_LOCATION + ";create=true");
+            } catch (final Exception e) {
+                throw new ProcessException("getConnection failed: " + e);
+            }
+        }
+
+        public String getDatabaseName() {
+            return dbName;
         }
     }
 }

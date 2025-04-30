@@ -3357,7 +3357,7 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
             if (currentReadClaimStream != null) {
                 currentReadClaimStream.close();
             }
-        } catch (final Exception e) {
+        } catch (final Exception ignored) {
         }
         currentReadClaimStream = null;
         currentReadClaim = null;
@@ -3769,12 +3769,6 @@ public class StandardProcessSession implements ProcessSession, ProvenanceEventEn
         }
 
         return result;
-    }
-
-    @Override
-    protected void finalize() throws Throwable {
-        rollback(false, false);
-        super.finalize();
     }
 
     @Override

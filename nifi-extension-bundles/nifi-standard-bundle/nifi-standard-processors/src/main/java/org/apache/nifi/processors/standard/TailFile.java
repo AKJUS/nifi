@@ -156,7 +156,7 @@ public class TailFile extends AbstractProcessor {
             .expressionLanguageSupported(NONE)
             .required(true)
             .allowableValues(MODE_SINGLEFILE, MODE_MULTIFILE)
-            .defaultValue(MODE_SINGLEFILE.getValue())
+            .defaultValue(MODE_SINGLEFILE)
             .build();
 
     static final PropertyDescriptor FILENAME = new Builder()
@@ -202,7 +202,7 @@ public class TailFile extends AbstractProcessor {
                     + "appropriately in order to ensure that all data is consumed without duplicating data upon restart of NiFi")
             .required(true)
             .allowableValues(LOCATION_LOCAL, LOCATION_REMOTE)
-            .defaultValue(LOCATION_LOCAL.getValue())
+            .defaultValue(LOCATION_LOCAL)
             .build();
 
     static final PropertyDescriptor START_POSITION = new Builder()
@@ -210,7 +210,7 @@ public class TailFile extends AbstractProcessor {
             .description("When the Processor first begins to tail data, this property specifies where the Processor should begin reading data. Once data has been ingested from a file, "
                     + "the Processor will continue from the last point from which it has received data.")
             .allowableValues(START_BEGINNING_OF_TIME, START_CURRENT_FILE, START_CURRENT_TIME)
-            .defaultValue(START_CURRENT_FILE.getValue())
+            .defaultValue(START_CURRENT_FILE)
             .required(true)
             .build();
 
@@ -294,7 +294,7 @@ public class TailFile extends AbstractProcessor {
             .defaultValue("65536 B")
             .build();
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             MODE,
             FILENAME,
             ROLLING_FILENAME_PATTERN,
@@ -316,7 +316,9 @@ public class TailFile extends AbstractProcessor {
             .description("All FlowFiles are routed to this Relationship.")
             .build();
 
-    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS);
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(
+        REL_SUCCESS
+    );
 
     private volatile Map<String, TailFileObject> states = new HashMap<>();
     private final AtomicLong lastLookup = new AtomicLong(0L);
@@ -330,7 +332,7 @@ public class TailFile extends AbstractProcessor {
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return PROPERTIES;
+        return PROPERTY_DESCRIPTORS;
     }
 
     @Override
@@ -397,10 +399,13 @@ public class TailFile extends AbstractProcessor {
 
     @OnScheduled
     public void compileRegex(final ProcessContext context) {
-        final String regex = context.getProperty(LINE_START_PATTERN).getValue();
-        lineStartPattern = (regex == null) ? null : Pattern.compile(regex);
+        if (context.getProperty(MODE).getValue().equals(MODE_SINGLEFILE.getValue())) {
+            final String patternString = context.getProperty(LINE_START_PATTERN).getValue();
+            lineStartPattern = patternString == null ? null : Pattern.compile(patternString);
+        }
 
-        this.maxBufferBytes = context.getProperty(MAX_BUFFER_LENGTH).asDataSize(DataUnit.B).longValue();
+        this.maxBufferBytes = lineStartPattern == null
+                ? Long.MAX_VALUE : context.getProperty(MAX_BUFFER_LENGTH).asDataSize(DataUnit.B).longValue();
         this.preAllocatedBufferSize = context.getProperty(PRE_ALLOCATED_BUFFER_SIZE).asDataSize(DataUnit.B).intValue();
     }
 

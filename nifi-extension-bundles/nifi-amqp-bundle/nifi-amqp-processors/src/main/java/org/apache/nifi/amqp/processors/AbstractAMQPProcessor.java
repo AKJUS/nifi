@@ -30,6 +30,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import javax.net.ssl.SSLContext;
+
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
@@ -43,8 +44,8 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.ssl.SSLContextProvider;
-
 
 /**
  * Base processor that uses RabbitMQ client API
@@ -102,8 +103,8 @@ abstract class AbstractAMQPProcessor<T extends AMQPWorker> extends AbstractProce
             .addValidator(StandardValidators.NON_EMPTY_EL_VALIDATOR)
             .build();
     public static final PropertyDescriptor USER = new PropertyDescriptor.Builder()
-            .name("User Name")
-            .description("User Name used for authentication and authorization.")
+            .name("Username")
+            .description("Username used for authentication and authorization.")
             .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .addValidator(StandardValidators.NON_EMPTY_EL_VALIDATOR)
@@ -123,45 +124,51 @@ abstract class AbstractAMQPProcessor<T extends AMQPWorker> extends AbstractProce
             .defaultValue("0.9.1")
             .build();
     public static final PropertyDescriptor SSL_CONTEXT_SERVICE = new PropertyDescriptor.Builder()
-            .name("ssl-context-service")
-            .displayName("SSL Context Service")
+            .name("SSL Context Service")
             .description("The SSL Context Service used to provide client certificate information for TLS/SSL connections.")
             .required(false)
             .identifiesControllerService(SSLContextProvider.class)
             .build();
-    public static final PropertyDescriptor USE_CERT_AUTHENTICATION = new PropertyDescriptor.Builder()
-            .name("cert-authentication")
-            .displayName("Use Client Certificate Authentication")
+    public static final PropertyDescriptor CLIENT_CERTIFICATE_AUTHENTICATION_ENABLED = new PropertyDescriptor.Builder()
+            .name("Client Certificate Authentication Enabled")
             .description("Authenticate using the SSL certificate rather than user name/password.")
             .required(false)
             .defaultValue("false")
             .allowableValues("true", "false")
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
             .build();
+    protected static final PropertyDescriptor MAX_INBOUND_MESSAGE_BODY_SIZE = new PropertyDescriptor.Builder()
+            .name("Max Inbound Message Body Size")
+            .description("Maximum body size of inbound (received) messages.")
+            .required(true)
+            .defaultValue("64 MB")
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .addValidator(StandardValidators.createDataSizeBoundsValidator(1, Integer.MAX_VALUE))
+            .build();
 
-    private static final List<PropertyDescriptor> propertyDescriptors;
-
-    static {
-        propertyDescriptors = List.of(
-                BROKERS,
-                HOST, PORT,
-                V_HOST,
-                USER,
-                PASSWORD,
-                AMQP_VERSION,
-                SSL_CONTEXT_SERVICE,
-                USE_CERT_AUTHENTICATION);
-    }
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
+            BROKERS,
+            HOST, PORT,
+            V_HOST,
+            USER,
+            PASSWORD,
+            AMQP_VERSION,
+            SSL_CONTEXT_SERVICE,
+            CLIENT_CERTIFICATE_AUTHENTICATION_ENABLED);
 
     protected static List<PropertyDescriptor> getCommonPropertyDescriptors() {
-        return propertyDescriptors;
+        return PROPERTY_DESCRIPTORS;
     }
 
     private BlockingQueue<AMQPResource<T>> resourceQueue;
 
     @Override
-    public void migrateProperties(final PropertyConfiguration config) {
-        config.removeProperty("ssl-client-auth");
+    public void migrateProperties(final PropertyConfiguration propertyConfiguration) {
+        propertyConfiguration.removeProperty("ssl-client-auth");
+
+        propertyConfiguration.renameProperty("User Name", USER.getName());
+        propertyConfiguration.renameProperty("ssl-context-service", SSL_CONTEXT_SERVICE.getName());
+        propertyConfiguration.renameProperty("cert-authentication", CLIENT_CERTIFICATE_AUTHENTICATION_ENABLED.getName());
     }
 
     @OnScheduled
@@ -176,7 +183,7 @@ abstract class AbstractAMQPProcessor<T extends AMQPWorker> extends AbstractProce
         boolean userConfigured = context.getProperty(USER).isSet();
         boolean passwordConfigured = context.getProperty(PASSWORD).isSet();
         boolean sslServiceConfigured = context.getProperty(SSL_CONTEXT_SERVICE).isSet();
-        boolean useCertAuthentication = context.getProperty(USE_CERT_AUTHENTICATION).asBoolean();
+        boolean useCertAuthentication = context.getProperty(CLIENT_CERTIFICATE_AUTHENTICATION_ENABLED).asBoolean();
 
         if (useCertAuthentication && (userConfigured || passwordConfigured)) {
             results.add(new ValidationResult.Builder()
@@ -184,7 +191,7 @@ abstract class AbstractAMQPProcessor<T extends AMQPWorker> extends AbstractProce
                     .valid(false)
                     .explanation(String.format("'%s' with '%s' and '%s' cannot be configured at the same time",
                             USER.getDisplayName(), PASSWORD.getDisplayName(),
-                            USE_CERT_AUTHENTICATION.getDisplayName()))
+                            CLIENT_CERTIFICATE_AUTHENTICATION_ENABLED.getDisplayName()))
                     .build());
         }
 
@@ -194,7 +201,7 @@ abstract class AbstractAMQPProcessor<T extends AMQPWorker> extends AbstractProce
                     .valid(false)
                     .explanation(String.format("either '%s' with '%s' or '%s' must be configured",
                             USER.getDisplayName(), PASSWORD.getDisplayName(),
-                            USE_CERT_AUTHENTICATION.getDisplayName()))
+                            CLIENT_CERTIFICATE_AUTHENTICATION_ENABLED.getDisplayName()))
                     .build());
         }
 
@@ -203,7 +210,7 @@ abstract class AbstractAMQPProcessor<T extends AMQPWorker> extends AbstractProce
                     .subject("SSL configuration")
                     .valid(false)
                     .explanation(String.format("'%s' has been set but no '%s' configured",
-                            USE_CERT_AUTHENTICATION.getDisplayName(), SSL_CONTEXT_SERVICE.getDisplayName()))
+                            CLIENT_CERTIFICATE_AUTHENTICATION_ENABLED.getDisplayName(), SSL_CONTEXT_SERVICE.getDisplayName()))
                     .build());
         }
         return results;
@@ -307,6 +314,7 @@ abstract class AbstractAMQPProcessor<T extends AMQPWorker> extends AbstractProce
         final ConnectionFactory cf = new ConnectionFactory();
         cf.setUsername(context.getProperty(USER).evaluateAttributeExpressions().getValue());
         cf.setPassword(context.getProperty(PASSWORD).getValue());
+        cf.setMaxInboundMessageBodySize(context.getProperty(MAX_INBOUND_MESSAGE_BODY_SIZE).evaluateAttributeExpressions().asDataSize(DataUnit.B).intValue());
 
         final String vHost = context.getProperty(V_HOST).evaluateAttributeExpressions().getValue();
         if (vHost != null) {
@@ -315,7 +323,7 @@ abstract class AbstractAMQPProcessor<T extends AMQPWorker> extends AbstractProce
 
         // handles TLS/SSL aspects
         final SSLContextProvider sslContextProvider = context.getProperty(SSL_CONTEXT_SERVICE).asControllerService(SSLContextProvider.class);
-        final Boolean useCertAuthentication = context.getProperty(USE_CERT_AUTHENTICATION).asBoolean();
+        final Boolean useCertAuthentication = context.getProperty(CLIENT_CERTIFICATE_AUTHENTICATION_ENABLED).asBoolean();
 
         if (sslContextProvider != null) {
             final SSLContext sslContext = sslContextProvider.createContext();

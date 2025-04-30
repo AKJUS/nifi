@@ -37,3 +37,10 @@ within the batch of Kinesis Records (messages), instead of a separate FlowFile p
 The FlowFiles emitted in this mode will include the standard `record.*` attributes along with the same Kinesis Shard ID,
 Sequence Number and Approximate Arrival Timestamp; but the values will relate to the **last** Kinesis Record that was
 processed in the batch of messages constituting the content of the FlowFile.
+
+Once a Record Writer is set the Output Strategy can be set to `Use Wrapper` or `Use Content`. When `Use Wrapper` is 
+picked the original content of the Kinesis Record will be wrapped under `value` key and an additional `metadata`
+key will be populated with Stream Name, Shard ID, Partition Key, Sequence Number, Sub Sequence Number, Approximate 
+Arrival Timestamp and a Sharded Sequence Number that is a concatenation of Sequence and Sub Sequence Numbers that allows
+a single comparison record ordering. 
+When `Use Content` is picked the original content of the Kinesis Record will be used as is.

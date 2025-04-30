@@ -26,6 +26,14 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.Validator;
+import org.apache.nifi.database.dialect.service.api.ColumnDefinition;
+import org.apache.nifi.database.dialect.service.api.StandardColumnDefinition;
+import org.apache.nifi.database.dialect.service.api.DatabaseDialectService;
+import org.apache.nifi.database.dialect.service.api.StandardStatementRequest;
+import org.apache.nifi.database.dialect.service.api.StatementRequest;
+import org.apache.nifi.database.dialect.service.api.StatementResponse;
+import org.apache.nifi.database.dialect.service.api.StatementType;
+import org.apache.nifi.database.dialect.service.api.TableDefinition;
 import org.apache.nifi.dbcp.DBCPService;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
@@ -39,7 +47,7 @@ import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processor.util.pattern.DiscontinuedException;
 import org.apache.nifi.processors.standard.db.ColumnDescription;
-import org.apache.nifi.processors.standard.db.DatabaseAdapter;
+import org.apache.nifi.processors.standard.db.DatabaseAdapterDescriptor;
 import org.apache.nifi.processors.standard.db.NameNormalizer;
 import org.apache.nifi.processors.standard.db.NameNormalizerFactory;
 import org.apache.nifi.processors.standard.db.TableNotFoundException;
@@ -72,7 +80,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.ServiceLoader;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -154,7 +162,7 @@ public class UpdateDatabaseTable extends AbstractProcessor {
             .required(true)
             .addValidator(Validator.VALID)
             .allowableValues(CREATE_IF_NOT_EXISTS, FAIL_IF_NOT_EXISTS)
-            .defaultValue(FAIL_IF_NOT_EXISTS.getValue())
+            .defaultValue(FAIL_IF_NOT_EXISTS)
             .build();
 
     static final PropertyDescriptor PRIMARY_KEY_FIELDS = new PropertyDescriptor.Builder()
@@ -187,8 +195,8 @@ public class UpdateDatabaseTable extends AbstractProcessor {
             .description("The strategy used to normalize table column name. Column Name will be uppercased to " +
                     "do case-insensitive matching irrespective of strategy")
             .allowableValues(TranslationStrategy.class)
-            .defaultValue(TranslationStrategy.REMOVE_UNDERSCORE.getValue())
-            .dependsOn(TRANSLATE_FIELD_NAMES, TRANSLATE_FIELD_NAMES.getDefaultValue())
+            .defaultValue(TranslationStrategy.REMOVE_UNDERSCORE)
+            .dependsOn(TRANSLATE_FIELD_NAMES, "true")
             .build();
 
     public static final PropertyDescriptor TRANSLATION_PATTERN = new PropertyDescriptor.Builder()
@@ -198,8 +206,7 @@ public class UpdateDatabaseTable extends AbstractProcessor {
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .addValidator(StandardValidators.REGULAR_EXPRESSION_VALIDATOR)
-            .dependsOn(TRANSLATE_FIELD_NAMES, TRANSLATE_FIELD_NAMES.getDefaultValue())
-            .dependsOn(TRANSLATION_STRATEGY, TranslationStrategy.PATTERN.getValue())
+            .dependsOn(TRANSLATION_STRATEGY, TranslationStrategy.PATTERN)
             .build();
 
     static final PropertyDescriptor UPDATE_FIELD_NAMES = new PropertyDescriptor.Builder()
@@ -257,8 +264,8 @@ public class UpdateDatabaseTable extends AbstractProcessor {
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .build();
 
-    protected static final Map<String, DatabaseAdapter> dbAdapters;
-    static final PropertyDescriptor DB_TYPE;
+    static final PropertyDescriptor DB_TYPE = DatabaseAdapterDescriptor.getDatabaseTypeDescriptor("db-type");
+    static final PropertyDescriptor DATABASE_DIALECT_SERVICE = DatabaseAdapterDescriptor.getDatabaseDialectServiceDescriptor(DB_TYPE);
     private static final List<PropertyDescriptor> properties;
 
     // Relationships
@@ -278,29 +285,11 @@ public class UpdateDatabaseTable extends AbstractProcessor {
     );
 
     static {
-        dbAdapters = new HashMap<>();
-        ArrayList<AllowableValue> dbAdapterValues = new ArrayList<>();
-
-        ServiceLoader<DatabaseAdapter> dbAdapterLoader = ServiceLoader.load(DatabaseAdapter.class);
-        dbAdapterLoader.forEach(databaseAdapter -> {
-            dbAdapters.put(databaseAdapter.getName(), databaseAdapter);
-            dbAdapterValues.add(new AllowableValue(databaseAdapter.getName(), databaseAdapter.getName(), databaseAdapter.getDescription()));
-        });
-
-        DB_TYPE = new PropertyDescriptor.Builder()
-                .name("db-type")
-                .displayName("Database Type")
-                .description("The type/flavor of database, used for generating database-specific code. In many cases the Generic type "
-                        + "should suffice, but some databases (such as Oracle) require custom SQL clauses.")
-                .allowableValues(dbAdapterValues.toArray(new AllowableValue[0]))
-                .defaultValue("Generic")
-                .required(false)
-                .build();
-
         properties = List.of(
                 RECORD_READER,
                 DBCP_SERVICE,
                 DB_TYPE,
+                DATABASE_DIALECT_SERVICE,
                 CATALOG_NAME,
                 SCHEMA_NAME,
                 TABLE_NAME,
@@ -338,12 +327,6 @@ public class UpdateDatabaseTable extends AbstractProcessor {
                     .explanation("Record Writer must be set if 'Update Field Names' is true").valid(false).build());
         }
 
-        final DatabaseAdapter databaseAdapter = dbAdapters.get(validationContext.getProperty(DB_TYPE).getValue());
-        final boolean createIfNotExists = CREATE_IF_NOT_EXISTS.getValue().equals(validationContext.getProperty(CREATE_TABLE).getValue());
-        if (createIfNotExists && !databaseAdapter.supportsCreateTableIfNotExists()) {
-            validationResults.add(new ValidationResult.Builder().subject(CREATE_TABLE.getDisplayName())
-                    .explanation("The specified Database Type does not support Create If Not Exists").valid(false).build());
-        }
         return validationResults;
     }
 
@@ -355,12 +338,18 @@ public class UpdateDatabaseTable extends AbstractProcessor {
             return;
         }
 
+        final boolean translateFieldNames = context.getProperty(TRANSLATE_FIELD_NAMES).asBoolean();
+        final boolean updateFieldNames = context.getProperty(UPDATE_FIELD_NAMES).asBoolean();
+        final boolean createIfNotExists = context.getProperty(CREATE_TABLE).getValue().equals(CREATE_IF_NOT_EXISTS.getValue());
+
         final RecordReaderFactory recordReaderFactory = context.getProperty(RECORD_READER).asControllerService(RecordReaderFactory.class);
-        final RecordSetWriterFactory recordWriterFactory = context.getProperty(RECORD_WRITER_FACTORY).asControllerService(RecordSetWriterFactory.class);
+        final RecordSetWriterFactory recordWriterFactory = updateFieldNames
+                ? context.getProperty(RECORD_WRITER_FACTORY).asControllerService(RecordSetWriterFactory.class) : null;
         final String catalogName = context.getProperty(CATALOG_NAME).evaluateAttributeExpressions(flowFile).getValue();
         final String schemaName = context.getProperty(SCHEMA_NAME).evaluateAttributeExpressions(flowFile).getValue();
         final String tableName = context.getProperty(TABLE_NAME).evaluateAttributeExpressions(flowFile).getValue();
-        final String primaryKeyFields = context.getProperty(PRIMARY_KEY_FIELDS).evaluateAttributeExpressions(flowFile).getValue();
+        final String primaryKeyFields = createIfNotExists
+                ? context.getProperty(PRIMARY_KEY_FIELDS).evaluateAttributeExpressions(flowFile).getValue() : null;
         final ComponentLog log = getLogger();
 
         try {
@@ -395,21 +384,26 @@ public class UpdateDatabaseTable extends AbstractProcessor {
 
             final RecordSchema recordSchema = reader.getSchema();
 
-            final boolean createIfNotExists = context.getProperty(CREATE_TABLE).getValue().equals(CREATE_IF_NOT_EXISTS.getValue());
-            final boolean updateFieldNames = context.getProperty(UPDATE_FIELD_NAMES).asBoolean();
-            final boolean translateFieldNames = context.getProperty(TRANSLATE_FIELD_NAMES).asBoolean();
-            final TranslationStrategy translationStrategy = TranslationStrategy.valueOf(context.getProperty(TRANSLATION_STRATEGY).getValue());
-            final String translationRegex = context.getProperty(TRANSLATION_PATTERN).getValue();
-            final Pattern translationPattern = translationRegex == null ? null : Pattern.compile(translationRegex);
-            NameNormalizer normalizer = null;
+            final NameNormalizer normalizer;
             if (translateFieldNames) {
+                final TranslationStrategy translationStrategy =
+                        context.getProperty(TRANSLATION_STRATEGY).asAllowableValue(TranslationStrategy.class);
+                final Pattern translationPattern = translationStrategy == TranslationStrategy.PATTERN
+                        ? Pattern.compile(context.getProperty(TRANSLATION_PATTERN).getValue()) : null;
+
                 normalizer = NameNormalizerFactory.getNormalizer(translationStrategy, translationPattern);
+            } else {
+                normalizer = null;
             }
+
             if (recordWriterFactory == null && updateFieldNames) {
                 throw new ProcessException("Record Writer must be set if 'Update Field Names' is true");
             }
             final DBCPService dbcpService = context.getProperty(DBCP_SERVICE).asControllerService(DBCPService.class);
-            final DatabaseAdapter databaseAdapter = dbAdapters.get(context.getProperty(DB_TYPE).getValue());
+
+            final String databaseType = context.getProperty(DB_TYPE).getValue();
+            final DatabaseDialectService databaseDialectService = DatabaseAdapterDescriptor.getDatabaseDialectService(context, DATABASE_DIALECT_SERVICE, databaseType);
+
             try (final Connection connection = dbcpService.getConnection(flowFile.getAttributes())) {
                 final boolean quoteTableName = context.getProperty(QUOTE_TABLE_IDENTIFIER).asBoolean();
                 final boolean quoteColumnNames = context.getProperty(QUOTE_COLUMN_IDENTIFIERS).asBoolean();
@@ -426,7 +420,7 @@ public class UpdateDatabaseTable extends AbstractProcessor {
                 } else {
                     primaryKeyColumnNames = null;
                 }
-                final OutputMetadataHolder outputMetadataHolder = checkAndUpdateTableSchema(connection, databaseAdapter, recordSchema,
+                final OutputMetadataHolder outputMetadataHolder = checkAndUpdateTableSchema(connection, databaseDialectService, recordSchema,
                         catalogName, schemaName, tableName, createIfNotExists, translateFieldNames, normalizer,
                         updateFieldNames, primaryKeyColumnNames, quoteTableName, quoteColumnNames);
                 if (outputMetadataHolder != null) {
@@ -490,19 +484,32 @@ public class UpdateDatabaseTable extends AbstractProcessor {
         }
     }
 
-    private synchronized OutputMetadataHolder checkAndUpdateTableSchema(final Connection conn, final DatabaseAdapter databaseAdapter, final RecordSchema schema,
-                                                                        final String catalogName, final String schemaName, final String tableName,
-                                                                        final boolean createIfNotExists, final boolean translateFieldNames, final NameNormalizer normalizer,
-                                                                        final boolean updateFieldNames, final Set<String> primaryKeyColumnNames, final boolean quoteTableName,
-                                                                        final boolean quoteColumnNames) throws IOException {
+    private synchronized OutputMetadataHolder checkAndUpdateTableSchema(
+            final Connection conn,
+            final DatabaseDialectService databaseDialectService,
+            final RecordSchema schema,
+            final String catalogName,
+            final String schemaName,
+            final String tableName,
+            final boolean createIfNotExists,
+            final boolean translateFieldNames,
+            final NameNormalizer normalizer,
+            final boolean updateFieldNames,
+            final Set<String> primaryKeyColumnNames,
+            final boolean quoteTableName,
+            final boolean quoteColumnNames
+    ) throws IOException {
         // Read in the current table metadata, compare it to the reader's schema, and
         // add any columns from the schema that are missing in the table
         try (final Statement s = conn.createStatement()) {
+            final DatabaseMetaData databaseMetaData = conn.getMetaData();
+            final String quoteString = databaseMetaData.getIdentifierQuoteString();
+
             // Determine whether the table exists
             TableSchema tableSchema = null;
             try {
                 tableSchema = TableSchema.from(conn, catalogName, schemaName, tableName, translateFieldNames, normalizer, null, getLogger());
-            } catch (TableNotFoundException tnfe) {
+            } catch (TableNotFoundException ignored) {
                 // Do nothing, the value will be populated if necessary
             }
 
@@ -510,18 +517,35 @@ public class UpdateDatabaseTable extends AbstractProcessor {
             boolean tableCreated = false;
             if (tableSchema == null) {
                 if (createIfNotExists) {
+
                     // Create a TableSchema from the record, adding all columns
                     for (RecordField recordField : schema.getFields()) {
                         String recordFieldName = recordField.getFieldName();
                         // Assume a column to be created is required if there is a default value in the schema
                         final boolean required = (recordField.getDefaultValue() != null);
-                        columns.add(new ColumnDescription(recordFieldName, DataTypeUtils.getSQLTypeValue(recordField.getDataType()), required, null, recordField.isNullable()));
-                        getLogger().debug("Adding column {} to table {}", recordFieldName, tableName);
+
+                        final String columnName;
+                        if (translateFieldNames) {
+                            columnName = normalizer.getNormalizedName(recordFieldName);
+                        } else {
+                            columnName = recordFieldName;
+                        }
+
+                        final int dataType = DataTypeUtils.getSQLTypeValue(recordField.getDataType());
+                        final String quotedColumnName = enquoteIdentifier(columnName, quoteString, quoteColumnNames);
+                        columns.add(new ColumnDescription(quotedColumnName, dataType, required, null, recordField.isNullable()));
+                        getLogger().debug("Adding column {} to table {}", columnName, tableName);
                     }
 
-                    tableSchema = new TableSchema(catalogName, schemaName, tableName, columns, translateFieldNames, normalizer, primaryKeyColumnNames, databaseAdapter.getColumnQuoteString());
+                    final String quotedCatalogName = enquoteIdentifier(catalogName, quoteString, quoteTableName);
+                    final String quotedSchemaName = enquoteIdentifier(schemaName, quoteString, quoteTableName);
+                    final String quotedTableName = enquoteIdentifier(tableName, quoteString, quoteTableName);
+                    tableSchema = new TableSchema(quotedCatalogName, quotedSchemaName, quotedTableName, columns, translateFieldNames, normalizer, primaryKeyColumnNames, quoteString);
 
-                    final String createTableSql = databaseAdapter.getCreateTableStatement(tableSchema, quoteTableName, quoteColumnNames);
+                    final TableDefinition tableDefinition = getTableDefinition(tableSchema);
+                    final StatementRequest statementRequest = new StandardStatementRequest(StatementType.CREATE, tableDefinition);
+                    final StatementResponse statementResponse = databaseDialectService.getStatement(statementRequest);
+                    final String createTableSql = statementResponse.sql();
 
                     if (StringUtils.isNotEmpty(createTableSql)) {
                         // Perform the table create
@@ -550,7 +574,7 @@ public class UpdateDatabaseTable extends AbstractProcessor {
                     final String normalizedFieldName = TableSchema.normalizedName(recordFieldName, translateFieldNames, normalizer);
                     if (!dbColumns.contains(normalizedFieldName)) {
                         // The field does not exist in the table, add it
-                        ColumnDescription columnToAdd = new ColumnDescription(recordFieldName, DataTypeUtils.getSQLTypeValue(recordField.getDataType()),
+                        ColumnDescription columnToAdd = new ColumnDescription(normalizedFieldName, DataTypeUtils.getSQLTypeValue(recordField.getDataType()),
                                 recordField.getDefaultValue() != null, null, recordField.isNullable());
                         columnsToAdd.add(columnToAdd);
                         dbColumns.add(recordFieldName);
@@ -559,18 +583,24 @@ public class UpdateDatabaseTable extends AbstractProcessor {
                 }
 
                 if (!columnsToAdd.isEmpty()) {
-                    final List<String> alterTableSqlStatements = databaseAdapter.getAlterTableStatements(tableName, columnsToAdd, quoteTableName, quoteColumnNames);
+                    final List<ColumnDefinition> columnDefinitions = columnsToAdd.stream().map(columnDescription ->
+                            new StandardColumnDefinition(
+                                    enquoteIdentifier(columnDescription.getColumnName(), quoteString, quoteColumnNames),
+                                    columnDescription.getDataType(),
+                                    columnDescription.isNullable() ? ColumnDefinition.Nullable.YES : ColumnDefinition.Nullable.UNKNOWN,
+                                    columnDescription.isRequired()
+                            )
+                            )
+                            .map(ColumnDefinition.class::cast)
+                            .toList();
+                    final String qualifiedTableName = enquoteIdentifier(tableName, quoteString, quoteTableName);
+                    final TableDefinition tableDefinition = new TableDefinition(Optional.empty(), Optional.empty(), qualifiedTableName, columnDefinitions);
+                    final StatementRequest statementRequest = new StandardStatementRequest(StatementType.ALTER, tableDefinition);
+                    final StatementResponse statementResponse = databaseDialectService.getStatement(statementRequest);
 
-                    if (alterTableSqlStatements != null && !alterTableSqlStatements.isEmpty()) {
-                        for (String alterTableSql : alterTableSqlStatements) {
-                            if (StringUtils.isEmpty(alterTableSql)) {
-                                continue;
-                            }
-                            // Perform the table update
-                            getLogger().info("Executing DDL: {}", alterTableSql);
-                            s.execute(alterTableSql);
-                        }
-                    }
+                    // Perform the table update
+                    getLogger().info("Executing DDL: {}", statementResponse.sql());
+                    s.execute(statementResponse.sql());
                 }
             }
 
@@ -647,6 +677,37 @@ public class UpdateDatabaseTable extends AbstractProcessor {
         }
 
         return "DBCPService";
+    }
+
+    private TableDefinition getTableDefinition(final TableSchema tableSchema) {
+        final Set<String> primaryKeyColumnNames = tableSchema.getPrimaryKeyColumnNames();
+        final Set<String> primaryKeys = primaryKeyColumnNames == null ? Set.of() : primaryKeyColumnNames;
+
+        final List<ColumnDefinition> columnDefinitions = tableSchema.getColumnsAsList().stream()
+                .map(columnDescription ->
+                    new StandardColumnDefinition(
+                            columnDescription.getColumnName(),
+                            columnDescription.getDataType(),
+                            columnDescription.isNullable() ? ColumnDefinition.Nullable.YES : ColumnDefinition.Nullable.NO,
+                            primaryKeys.contains(columnDescription.getColumnName())
+                    )
+                )
+                .map(ColumnDefinition.class::cast)
+                .toList();
+
+        return new TableDefinition(
+                Optional.ofNullable(tableSchema.getCatalogName()),
+                Optional.ofNullable(tableSchema.getSchemaName()),
+                tableSchema.getTableName(),
+                columnDefinitions
+        );
+    }
+
+    private String enquoteIdentifier(final String identifier, final String quotedIdentifierString, final boolean quoteIdentifier) {
+        if (identifier != null && quoteIdentifier) {
+            return quotedIdentifierString + identifier + quotedIdentifierString;
+        }
+        return identifier;
     }
 
     private static class OutputMetadataHolder {

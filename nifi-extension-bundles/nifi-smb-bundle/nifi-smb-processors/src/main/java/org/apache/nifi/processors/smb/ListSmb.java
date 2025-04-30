@@ -40,13 +40,17 @@ import static org.apache.nifi.services.smb.SmbListableEntity.SIZE;
 
 import java.io.IOException;
 import java.net.URI;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
@@ -59,6 +63,7 @@ import org.apache.nifi.annotation.configuration.DefaultSchedule;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
+import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.PropertyDescriptor.Builder;
 import org.apache.nifi.components.PropertyValue;
@@ -69,8 +74,11 @@ import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.context.PropertyContext;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
+import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processor.util.list.AbstractListProcessor;
 import org.apache.nifi.processor.util.list.ListedEntityTracker;
+import org.apache.nifi.processors.smb.util.InitialListingStrategy;
 import org.apache.nifi.scheduling.SchedulingStrategy;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.services.smb.SmbClientProviderService;
@@ -82,8 +90,8 @@ import org.apache.nifi.services.smb.SmbListableEntity;
 @Tags({"samba, smb, cifs, files", "list"})
 @SeeAlso({PutSmbFile.class, GetSmbFile.class, FetchSmb.class})
 @CapabilityDescription("Lists concrete files shared via SMB protocol. " +
-        "Each listed file may result in one flowfile, the metadata being written as flowfile attributes. " +
-        "Or - in case the 'Record Writer' property is set - the entire result is written as records to a single flowfile. "
+        "Each listed file may result in one FlowFile, the metadata being written as FlowFile attributes. " +
+        "Or - in case the 'Record Writer' property is set - the entire result is written as records to a single FlowFile. "
         +
         "This Processor is designed to run on Primary Node only in a cluster. If the primary node changes, the new Primary Node will pick up where the "
         +
@@ -169,6 +177,26 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             .allowableValues(BY_ENTITIES, NO_TRACKING, BY_TIMESTAMPS)
             .build();
 
+    public static final PropertyDescriptor INITIAL_LISTING_STRATEGY = new Builder()
+            .name("initial-listing-strategy")
+            .displayName("Initial Listing Strategy")
+            .description("Specifies how to handle existing files on the SMB share when the processor is started for the first time (or its state has been cleared).")
+            .required(true)
+            .allowableValues(InitialListingStrategy.class)
+            .defaultValue(InitialListingStrategy.ALL_FILES.getValue())
+            .dependsOn(SMB_LISTING_STRATEGY, BY_TIMESTAMPS)
+            .build();
+
+    public static final PropertyDescriptor INITIAL_LISTING_TIMESTAMP = new Builder()
+            .name("initial-listing-timestamp")
+            .displayName("Initial Listing Timestamp")
+            .description("The timestamp from which the files will be listed when the processor is started for the first time (or its state has been cleared). " +
+                    "The value can be specified as an epoch timestamp in milliseconds or as a UTC datetime in a format such as 2025-02-01T00:00:00Z")
+            .required(true)
+            .dependsOn(INITIAL_LISTING_STRATEGY, InitialListingStrategy.FROM_TIMESTAMP)
+            .addValidator(NON_BLANK_VALIDATOR)
+            .build();
+
     public static final PropertyDescriptor SMB_CLIENT_PROVIDER_SERVICE = new Builder()
             .name("smb-client-provider-service")
             .displayName("SMB Client Provider Service")
@@ -177,9 +205,27 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             .identifiesControllerService(SmbClientProviderService.class)
             .build();
 
-    public static final PropertyDescriptor FILE_NAME_SUFFIX_FILTER = new Builder()
+    public static final PropertyDescriptor FILE_FILTER = new Builder()
+            .name("file-filter")
+            .displayName("File Filter")
+            .description("Only files whose names match the given regular expression will be listed.")
+            .required(false)
+            .addValidator(NON_BLANK_VALIDATOR)
+            .addValidator(StandardValidators.REGULAR_EXPRESSION_VALIDATOR)
+            .build();
+
+    public static final PropertyDescriptor PATH_FILTER = new Builder()
+            .name("path-filter")
+            .displayName("Path Filter")
+            .description("Only files whose paths (up to the file's parent directory) match the given regular expression will be listed.")
+            .required(false)
+            .addValidator(NON_BLANK_VALIDATOR)
+            .addValidator(StandardValidators.REGULAR_EXPRESSION_VALIDATOR)
+            .build();
+
+    public static final PropertyDescriptor IGNORE_FILES_WITH_SUFFIX = new Builder()
             .name("file-name-suffix-filter")
-            .displayName("File Name Suffix Filter")
+            .displayName("Ignore Files with Suffix")
             .description("Files ending with the given suffix will be omitted. Can be used to make sure that files "
                     + "that are still uploading are not listed multiple times, by having those files have a suffix "
                     + "and remove the suffix once the upload finishes. This is highly recommended when using "
@@ -189,25 +235,65 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             .addValidator(new MustNotContainDirectorySeparatorsValidator())
             .build();
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+    public static final PropertyDescriptor TRACKING_STATE_CACHE = new Builder()
+            .fromPropertyDescriptor(ListedEntityTracker.TRACKING_STATE_CACHE)
+            .dependsOn(SMB_LISTING_STRATEGY, BY_ENTITIES)
+            .build();
+
+    public static final PropertyDescriptor TRACKING_TIME_WINDOW = new Builder()
+            .fromPropertyDescriptor(ListedEntityTracker.TRACKING_TIME_WINDOW)
+            .dependsOn(SMB_LISTING_STRATEGY, BY_ENTITIES)
+            .build();
+
+    public static final PropertyDescriptor INITIAL_LISTING_TARGET = new Builder()
+            .fromPropertyDescriptor(ListedEntityTracker.INITIAL_LISTING_TARGET)
+            .dependsOn(SMB_LISTING_STRATEGY, BY_ENTITIES)
+            .build();
+
+    private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             SMB_CLIENT_PROVIDER_SERVICE,
             SMB_LISTING_STRATEGY,
+            INITIAL_LISTING_STRATEGY,
+            INITIAL_LISTING_TIMESTAMP,
             DIRECTORY,
-            FILE_NAME_SUFFIX_FILTER,
+            FILE_FILTER,
+            PATH_FILTER,
+            IGNORE_FILES_WITH_SUFFIX,
             AbstractListProcessor.RECORD_WRITER,
             MINIMUM_AGE,
             MAXIMUM_AGE,
             MINIMUM_SIZE,
             MAXIMUM_SIZE,
             AbstractListProcessor.TARGET_SYSTEM_TIMESTAMP_PRECISION,
-            ListedEntityTracker.TRACKING_STATE_CACHE,
-            ListedEntityTracker.TRACKING_TIME_WINDOW,
-            ListedEntityTracker.INITIAL_LISTING_TARGET
+            TRACKING_STATE_CACHE,
+            TRACKING_TIME_WINDOW,
+            INITIAL_LISTING_TARGET
     );
+
+    private volatile Long initialListingTimestamp;
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        return PROPERTIES;
+        return PROPERTY_DESCRIPTORS;
+    }
+
+    @Override
+    protected void customValidate(ValidationContext validationContext, Collection<ValidationResult> validationResults) {
+        try {
+            getInitialListingTimestamp(validationContext);
+        } catch (InvalidTimestampException ite) {
+            validationResults.add(new ValidationResult.Builder()
+                    .subject(INITIAL_LISTING_TIMESTAMP.getDisplayName())
+                    .explanation(ite.getMessage())
+                    .valid(false)
+                    .build());
+        }
+    }
+
+    @OnScheduled
+    public void onScheduled(ProcessContext context) throws IOException {
+        boolean isStateEmpty = context.getStateManager().getState(getStateScope(context)).toMap().isEmpty();
+        initialListingTimestamp = isStateEmpty ? getInitialListingTimestamp(context) : null;
     }
 
     @Override
@@ -264,7 +350,7 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
 
     @Override
     protected boolean isListingResetNecessary(PropertyDescriptor property) {
-        return asList(SMB_CLIENT_PROVIDER_SERVICE, DIRECTORY, FILE_NAME_SUFFIX_FILTER).contains(property);
+        return asList(SMB_CLIENT_PROVIDER_SERVICE, DIRECTORY, IGNORE_FILES_WITH_SUFFIX).contains(property);
     }
 
     @Override
@@ -311,7 +397,9 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
         final Double maximumSizeOrNull =
                 context.getProperty(MAXIMUM_SIZE).isSet() ? context.getProperty(MAXIMUM_SIZE).asDataSize(DataUnit.B)
                         : null;
-        final String suffixOrNull = context.getProperty(FILE_NAME_SUFFIX_FILTER).getValue();
+        final Pattern filePatternOrNull = context.getProperty(FILE_FILTER).isSet() ? Pattern.compile(context.getProperty(FILE_FILTER).getValue()) : null;
+        final Pattern pathPatternOrNull = context.getProperty(PATH_FILTER).isSet() ? Pattern.compile(context.getProperty(PATH_FILTER).getValue()) : null;
+        final String ignoreSuffixOrNull = context.getProperty(IGNORE_FILES_WITH_SUFFIX).getValue();
 
         final long now = getCurrentTime();
         Predicate<SmbListableEntity> filter = entity -> now - entity.getLastModifiedTime() >= minimumAge;
@@ -324,6 +412,10 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             filter = filter.and(entity -> entity.getLastModifiedTime() >= minTimestampOrNull);
         }
 
+        if (initialListingTimestamp != null) {
+            filter = filter.and(entity -> entity.getLastModifiedTime() >= initialListingTimestamp);
+        }
+
         if (minimumSizeOrNull != null) {
             filter = filter.and(entity -> entity.getSize() >= minimumSizeOrNull);
         }
@@ -332,8 +424,16 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             filter = filter.and(entity -> entity.getSize() <= maximumSizeOrNull);
         }
 
-        if (suffixOrNull != null) {
-            filter = filter.and(entity -> !entity.getName().endsWith(suffixOrNull));
+        if (filePatternOrNull != null) {
+            filter = filter.and(entity -> filePatternOrNull.matcher(entity.getName()).matches());
+        }
+
+        if (pathPatternOrNull != null) {
+            filter = filter.and(entity -> pathPatternOrNull.matcher(entity.getPath()).matches());
+        }
+
+        if (ignoreSuffixOrNull != null) {
+            filter = filter.and(entity -> !entity.getName().endsWith(ignoreSuffixOrNull));
         }
 
         return filter;
@@ -348,7 +448,7 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
             try {
                 clientService.close();
             } catch (Exception e) {
-                throw new RuntimeException("Could not close SMB client", e);
+                throw new ProcessException("Could not close SMB client", e);
             }
         });
     }
@@ -357,6 +457,32 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
         final PropertyValue property = context.getProperty(DIRECTORY);
         final String directory = property.isSet() ? property.getValue().replace('\\', '/') : "";
         return "/".equals(directory) ? "" : directory;
+    }
+
+    private Long getInitialListingTimestamp(PropertyContext context) {
+        final String listingStrategy = context.getProperty(SMB_LISTING_STRATEGY).getValue();
+
+        if (BY_TIMESTAMPS.getValue().equals(listingStrategy)) {
+            final InitialListingStrategy initialListingStrategy = context.getProperty(INITIAL_LISTING_STRATEGY).asAllowableValue(InitialListingStrategy.class);
+
+            if (InitialListingStrategy.NEW_FILES == initialListingStrategy) {
+                return Instant.now().toEpochMilli();
+            } else if (InitialListingStrategy.FROM_TIMESTAMP == initialListingStrategy) {
+                final String initialListingTimestamp = context.getProperty(INITIAL_LISTING_TIMESTAMP).getValue();
+
+                try {
+                    return Instant.parse(initialListingTimestamp).toEpochMilli();
+                } catch (DateTimeParseException dtpe) {
+                    try {
+                        return Long.parseLong(initialListingTimestamp);
+                    } catch (NumberFormatException nfe) {
+                        throw new InvalidTimestampException(initialListingTimestamp);
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     private static class MustNotContainDirectorySeparatorsValidator implements Validator {
@@ -371,6 +497,12 @@ public class ListSmb extends AbstractListProcessor<SmbListableEntity> {
                     .build();
         }
 
+    }
+
+    private static class InvalidTimestampException extends RuntimeException {
+        InvalidTimestampException(String timestamp) {
+            super(String.format("'%s' is neither an epoch timestamp nor a UTC datetime.", timestamp));
+        }
     }
 
 }

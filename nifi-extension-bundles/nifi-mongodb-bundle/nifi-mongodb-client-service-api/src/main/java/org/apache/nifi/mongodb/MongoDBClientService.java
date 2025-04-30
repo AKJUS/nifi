@@ -25,7 +25,6 @@ import org.apache.nifi.controller.ControllerService;
 import org.apache.nifi.controller.VerifiableControllerService;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.security.util.ClientAuth;
 import org.apache.nifi.ssl.SSLContextProvider;
 import org.bson.Document;
 
@@ -71,8 +70,7 @@ public interface MongoDBClientService extends ControllerService, VerifiableContr
             "Write operations that use this write concern will wait for acknowledgement from three members");
 
      PropertyDescriptor URI = new PropertyDescriptor.Builder()
-            .name("mongo-uri")
-            .displayName("Mongo URI")
+            .name("Mongo URI")
             .description("MongoURI, typically of the form: mongodb://host1[:port1][,host2[:port2],...]")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
@@ -80,7 +78,6 @@ public interface MongoDBClientService extends ControllerService, VerifiableContr
             .build();
      PropertyDescriptor DB_USER = new PropertyDescriptor.Builder()
             .name("Database User")
-            .displayName("Database User")
             .description("Database user name")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -88,7 +85,6 @@ public interface MongoDBClientService extends ControllerService, VerifiableContr
             .build();
      PropertyDescriptor DB_PASSWORD = new PropertyDescriptor.Builder()
             .name("Password")
-            .displayName("Password")
             .description("The password for the database user")
             .required(false)
             .sensitive(true)
@@ -96,27 +92,15 @@ public interface MongoDBClientService extends ControllerService, VerifiableContr
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .build();
      PropertyDescriptor SSL_CONTEXT_SERVICE = new PropertyDescriptor.Builder()
-            .name("ssl-context-service")
-            .displayName("SSL Context Service")
+            .name("SSL Context Service")
             .description("The SSL Context Service used to provide client certificate information for TLS/SSL "
                     + "connections.")
             .required(false)
             .identifiesControllerService(SSLContextProvider.class)
             .build();
-     PropertyDescriptor CLIENT_AUTH = new PropertyDescriptor.Builder()
-            .name("ssl-client-auth")
-            .displayName("Client Auth")
-            .description("Client authentication policy when connecting to secure (TLS/SSL) cluster. "
-                    + "Possible values are REQUIRED, WANT, NONE. This property is only used when an SSL Context "
-                    + "has been defined and enabled.")
-            .required(false)
-            .allowableValues(ClientAuth.values())
-            .defaultValue("REQUIRED")
-            .build();
 
      PropertyDescriptor WRITE_CONCERN = new PropertyDescriptor.Builder()
-            .name("mongo-write-concern")
-            .displayName("Write Concern")
+            .name("Write Concern")
             .description("The write concern to use")
             .required(true)
             .allowableValues(WRITE_CONCERN_ACKNOWLEDGED_VALUE, WRITE_CONCERN_UNACKNOWLEDGED_VALUE, WRITE_CONCERN_FSYNCED_VALUE,

@@ -663,6 +663,68 @@ The following settings can be configured in _nifi.properties_ to control JSON We
 |`nifi.security.user.jws.key.rotation.period` | JSON Web Signature Key Rotation Period defines how often the system generates a new RSA Key Pair, expressed as an ISO 8601 duration. The default is one hour: `PT1H`
 |==================================================================================================================================================
 
+[[x509_client_certificates]]
+=== X.509 Client Certificates
+
+NiFi supports authentication using mutual TLS with X.509 client certificates as part of the standard configuration when
+running with HTTPS enabled. Client certificate authentication is required for communication between NiFi nodes in a
+clustered deployment and cannot be disabled.
+
+NiFi sends a certificate request during the TLS handshake as described in
+link:https://www.rfc-editor.org/rfc/rfc8446#section-4.3.2[RFC 8446 Section 4.3.2] for TLS 1.3. When configured for
+authentication using a Login Identity Provider or Single Sign-On, NiFi sends a certificate request but does
+not require the client to respond. In absence of other authentication strategies, NiFi requires the client to present a
+certificate during the TLS handshake process. The NiFi security trust store properties define the certificate
+authorities accepted as issuers of client certificates.
+
+==== Proxied Entities Chain
+
+NiFi supports proxied entity access in conjunction with X.509 client certificate authentication. Clients that present
+trusted certificates for mutual TLS authentication can send proxied identity information through specified
+HTTP request headers. The client certificate subject principal must be authorized to send a proxy request, based on the
+configured Authorizer.
+
+Authorized proxies can present one or more proxied identities using an HTTP request header and a value delimited using
+angle bracket characters.
+
+- Header Name: `X-ProxiedEntitiesChain`
+- Value: `<user-identity>`
+
+Multiple proxied entities can be specified to indicate a chain of proxy services.
+
+- Header Name: `X-ProxiedEntitiesChain`
+- Value: `<user-identity><proxy-server-identity>`
+
+Proxied identities that contain characters outside of US-ASCII must be encoded using Base64 and wrapped with additional
+angle brackets.
+
+- Header Name: `X-ProxiedEntitiesChain`
+- Value: `\<<dXNlci1pZGVudGl0eQ>>`
+
+NiFi includes an HTTP response header on successful authentication of HTTP requests with proxied entities.
+
+- Header Name: `X-ProxiedEntitiesAccepted`
+- Value: `true`
+
+NiFi includes an HTTP response header on failed authentication of proxied entities describing the error.
+
+- Header Name: `X-ProxiedEntitiesDetails`
+- Value: error message
+
+==== Proxied Entity Groups
+
+NiFi supports passing group membership information together with proxied identity information from clients that present
+authorized X.509 client certificates.
+
+Authorized proxies can pass one or more group names using an HTTP request header and values delimited using angle
+bracket characters.
+
+- Header Name: `X-ProxiedEntityGroups`
+- Value: `<first-group><second-group>`
+
+Proxied group names follow the same encoding standards as proxied entities, requiring Base64 encoding for characters
+outside of US-ASCII.
+
 [[csrf-protection]]
 === Cross-Site Request Forgery Protection
 
@@ -2851,6 +2913,15 @@ The Database Settings section defines the settings for the internal database, wh
 |`nifi.database.directory`*|The location of the Flow Configuration History database directory. The default value is `./database_repository`.
 |====
 
+=== Flow Action Reporter
+
+The Flow Action Reporter is a framework interface that supports exporting flow configuration changes using a custom implementation class.
+
+|====
+|*Property*                                 | *Description*
+|`nifi.flow.action.reporter.implementation` | The class implementing `org.apache.nifi.action.FlowActionReporter` from `nifi-framework-api`. The default value is not specified.
+|====
+
 === FlowFile Repository
 
 The FlowFile repository keeps track of the attributes and current state of each FlowFile in the system. By default,
@@ -3444,6 +3515,7 @@ The value can be set to `h2` to require HTTP/2 and disable HTTP/1.1.
 |`nifi.web.proxy.host`|A comma separated list of allowed HTTP Host header values to consider when NiFi is running securely and will be receiving requests to a different host[:port] than it is bound to.
 For example, when running in a Docker container or behind a proxy (e.g. localhost:18443, proxyhost:443). By default, this value is blank meaning NiFi should only allow requests sent to the
 host[:port] that NiFi is bound to.
+Requests containing an invalid port in the Host or authority header return an HTTP 421 Misdirected Request status.
 |`nifi.web.proxy.context.path`|A comma separated list of allowed HTTP X-ProxyContextPath, X-Forwarded-Context, or X-Forwarded-Prefix header values to consider. By default, this value is
 blank meaning all requests containing a proxy context path are rejected. Configuring this property would allow requests where the proxy path is contained in this listing.
 |`nifi.web.max.content.size`|The maximum size (HTTP `Content-Length`) for PUT and POST requests. No default value is set for backward compatibility. Providing a value for this property enables the `Content-Length` filter on all incoming API requests (except Site-to-Site and cluster communications). A suggested value is `20 MB`.
