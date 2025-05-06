@@ -475,12 +475,12 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-framework-authorization-providers</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-framework-cluster</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -585,7 +585,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-jetty</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -606,7 +606,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-web-security</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
 
         <!-- NAR Bundles -->
@@ -683,7 +683,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-azure-graph-authorizer</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -693,7 +693,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-azure-processors</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -913,7 +913,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-gcp-processors</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -1033,12 +1033,12 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-kerberos-iaa-providers</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-ldap-iaa-providers</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -1083,7 +1083,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-parquet-processors</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -1218,7 +1218,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-snowflake-services-api</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -1487,7 +1487,7 @@
         <dependency>
             <groupId>org.apache.nifi.registry</groupId>
             <artifactId>nifi-registry-framework</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi.registry</groupId>
