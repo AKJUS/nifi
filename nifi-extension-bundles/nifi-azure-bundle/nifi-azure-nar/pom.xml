@@ -39,7 +39,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-azure-graph-authorizer</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
             <exclusions>
                 <!-- Exclude Guava provided in nifi-azure-services-api-nar -->
                 <exclusion>
