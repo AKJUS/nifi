@@ -115,7 +115,7 @@ limitations under the License.
         <dependency>
             <groupId>org.apache.nifi.minifi</groupId>
             <artifactId>minifi-bootstrap</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi.minifi</groupId>
@@ -187,7 +187,7 @@ limitations under the License.
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-jetty-nar</artifactId>
-            <version>2.2.0-SNAPSHOT</version>
+            <version>2.4.0</version>
             <type>nar</type>
         </dependency>
         <dependency>
@@ -356,7 +356,7 @@ limitations under the License.
         <!--Bootstrap Properties -->
         <minifi.jvm.heap.mb>256</minifi.jvm.heap.mb>
         <minifi.jvm.permgen.mb>128</minifi.jvm.permgen.mb>
-        <minifi.run.as />
+        <minifi.run.as/>
 
         <!--Commons Daemon Properties-->
         <commons.daemon.version>1.2.1</commons.daemon.version>
@@ -391,26 +391,26 @@ limitations under the License.
                                 </goals>
                                 <configuration>
                                     <target>
-                                        <taskdef resource="net/sf/antcontrib/antcontrib.properties" />
+                                        <taskdef resource="net/sf/antcontrib/antcontrib.properties"/>
                                         <if>
-                                            <available file="${basedir}/target/minifiw.exe" />
+                                            <available file="${basedir}/target/minifiw.exe"/>
                                             <then>
-                                                <echo message="Skipping download of commons-daemon." />
+                                                <echo message="Skipping download of commons-daemon."/>
                                             </then>
                                             <else>
-                                                <echo message="Downloading Commons Daemon Windows binaries." />
-                                                <property name="commons.daemon.file" value="commons-daemon-${commons.daemon.version}-bin-windows.zip" />
-                                                <get src="${commons.daemon.mirror.url}/${commons.daemon.file}" dest="${java.io.tmpdir}/${commons.daemon.file}" skipexisting="true" />
-                                                <local name="checksum.matches" />
-                                                <checksum file="${java.io.tmpdir}/${commons.daemon.file}" algorithm="SHA-512" property="${commons.daemon.sha512sum}" verifyProperty="checksum.matches" />
-                                                <echo message="Checksum match = ${checksum.matches}" />
+                                                <echo message="Downloading Commons Daemon Windows binaries."/>
+                                                <property name="commons.daemon.file" value="commons-daemon-${commons.daemon.version}-bin-windows.zip"/>
+                                                <get src="${commons.daemon.mirror.url}/${commons.daemon.file}" dest="${java.io.tmpdir}/${commons.daemon.file}" skipexisting="true"/>
+                                                <local name="checksum.matches"/>
+                                                <checksum file="${java.io.tmpdir}/${commons.daemon.file}" algorithm="SHA-512" property="${commons.daemon.sha512sum}" verifyProperty="checksum.matches"/>
+                                                <echo message="Checksum match = ${checksum.matches}"/>
                                                 <condition property="checksum.matches.fail">
-                                                    <equals arg1="${checksum.matches}" arg2="false" />
+                                                    <equals arg1="${checksum.matches}" arg2="false"/>
                                                 </condition>
                                                 <fail if="checksum.matches.fail">Checksum error</fail>
-                                                <unzip src="${java.io.tmpdir}/${commons.daemon.file}" dest="${java.io.tmpdir}" />
-                                                <copy file="${java.io.tmpdir}/prunmgr.exe" tofile="${basedir}/target/minifiw.exe" />
-                                                <copy file="${java.io.tmpdir}/amd64/prunsrv.exe" tofile="${basedir}/target/minifi.exe" />
+                                                <unzip src="${java.io.tmpdir}/${commons.daemon.file}" dest="${java.io.tmpdir}"/>
+                                                <copy file="${java.io.tmpdir}/prunmgr.exe" tofile="${basedir}/target/minifiw.exe"/>
+                                                <copy file="${java.io.tmpdir}/amd64/prunsrv.exe" tofile="${basedir}/target/minifi.exe"/>
                                             </else>
                                         </if>
                                     </target>
