@@ -35,7 +35,7 @@
     </modules>
     <properties>
         <org.apache.sshd.version>2.14.0</org.apache.sshd.version>
-        <tika.version>3.0.0</tika.version>
+        <tika.version>3.2.2</tika.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -92,7 +92,7 @@
             <dependency>
                 <groupId>com.sun.mail</groupId>
                 <artifactId>jakarta.mail</artifactId>
-                <version>2.0.1</version>
+                <version>2.0.2</version>
             </dependency>
             <dependency>
                 <groupId>com.github.jponge</groupId>
